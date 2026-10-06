@@ -6,7 +6,7 @@ Audit mode: **ingress/lifecycle audit complete; P0-A/P0-B implementation added a
 
 ## Executive result
 
-**P0 status: TARGETED WINDOWS PASS (P0-A/P0-B/P0-C/P0-D implemented and 55/55 targeted tests passed on Windows).**
+**P0 status: CLOSED (P0-A/P0-B/P0-C/P0-D implemented; targeted suite passed on GitHub Windows and operator Windows 10).**
 
 Implementation commits after the audit:
 
@@ -21,7 +21,10 @@ Current test evidence:
   Python 3.12.10;
 - run `37514295813` completed successfully;
 - **55/55 targeted P0 tests passed with no skips**;
-- the Windows-only junction/reparse test therefore executed successfully.
+- the Windows-only junction/reparse test therefore executed successfully;
+- the operator then repeated the same targeted suite on Windows 10 / Python
+  3.12.11: **55/55 passed**;
+- the isolated junction test also passed locally.
 
 See `docs/PROJECT_SAFE_P0_WINDOWS_VALIDATION_2026-10-06.md`.
 
@@ -469,23 +472,26 @@ jail or separate capability model.
 
 P0-A, P0-B, P0-C and P0-D have now been implemented.
 
-**Stop here before P1.** The next block is validation, not architecture or new
-features.
+P0 validation is complete.
 
-The targeted Windows P0 workflow is now green: run `37514295813` passed
-55/55 tests on Windows Server 2025 / Python 3.12.10 with no skips.
+Evidence:
 
-This satisfies the machine-executed Windows evidence requirement for the
-targeted P0 gate. An optional smoke test on the operator's exact Windows 10
-machine remains an operational check, not a blocker for architecture work.
+- GitHub Actions run `37514295813`: Windows Server 2025 / Python 3.12.10,
+  **55/55 passed**, no skips;
+- operator Windows 10 / Python 3.12.11: the same targeted suite,
+  **55/55 passed**;
+- local Windows junction/reparse regression executed and passed.
+
+The isolated junction command also triggered the repository-wide coverage
+threshold because only one test was selected; that coverage failure does not
+invalidate the passing boundary assertion.
 
 What is now known:
 
 - the architecture is recorded;
-- the actual ingress surface has been mapped;
-- concrete bypasses have been identified;
-- the Windows test matrix has been defined;
-- P0 is demonstrably not complete.
+- the ingress and secondary execution surfaces are mapped and gated;
+- the Windows boundary matrix is implemented for P0;
+- Windows Server 2025 and Windows 10 both provide green targeted evidence;
+- residual TOCTOU limitations remain explicitly documented.
 
-Next action is the targeted P0 validation run on the intended Windows
-environment. P1 remains blocked until that evidence is green.
+**P0 is CLOSED. P1 contract work may begin.**
