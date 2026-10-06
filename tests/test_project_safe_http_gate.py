@@ -1,7 +1,13 @@
 """Regression tests for the fail-closed project-safe HTTP ingress gate."""
+import asyncio
+
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+
 from arena.project_safe_http import (
     PROJECT_SAFE_HTTP_ALLOWLIST,
     project_safe_http_allowed,
+    project_safe_http_middleware,
 )
 
 
@@ -66,3 +72,61 @@ def test_project_safe_http_options_only_for_reviewed_paths():
     assert project_safe_http_allowed("OPTIONS", "/v1/extension/execute")
     assert not project_safe_http_allowed("OPTIONS", "/v1/exec")
     assert not project_safe_http_allowed("OPTIONS", "/future/new/route")
+
+
+
+def test_project_safe_http_middleware_blocks_before_handler(monkeypatch):
+    calls = {"danger": 0}
+
+    async def scenario():
+        async def health(_request):
+            return web.json_response({"ok": True})
+
+        async def danger(_request):
+            calls["danger"] += 1
+            return web.json_response({"executed": True})
+
+        app = web.Application(middlewares=[project_safe_http_middleware])
+        app.router.add_get("/health", health)
+        app.router.add_post("/v1/exec", danger)
+
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        try:
+            allowed = await client.get("/health")
+            assert allowed.status == 200
+
+            blocked = await client.post("/v1/exec")
+            assert blocked.status == 403
+            payload = await blocked.json()
+            assert payload["error"] == "project_safe_ingress_denied"
+            assert calls["danger"] == 0
+        finally:
+            await client.close()
+
+    monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
+    asyncio.run(scenario())
+
+
+def test_project_safe_http_middleware_is_transparent_when_disabled(monkeypatch):
+    calls = {"danger": 0}
+
+    async def scenario():
+        async def danger(_request):
+            calls["danger"] += 1
+            return web.json_response({"executed": True})
+
+        app = web.Application(middlewares=[project_safe_http_middleware])
+        app.router.add_post("/v1/exec", danger)
+
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        try:
+            response = await client.post("/v1/exec")
+            assert response.status == 200
+            assert calls["danger"] == 1
+        finally:
+            await client.close()
+
+    monkeypatch.delenv("ARENA_PROJECT_SAFE", raising=False)
+    asyncio.run(scenario())
