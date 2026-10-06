@@ -42,6 +42,8 @@ def windows_path_rejection_reason(raw_path: str) -> str | None:
             return "Windows path components with trailing dots or spaces are not allowed"
         if ":" in part:
             return "NTFS alternate data streams are not allowed"
+        if re.fullmatch(r".*~[0-9]+(?:\..*)?", part, flags=re.IGNORECASE):
+            return "Windows 8.3 short-name aliases are not allowed in project-safe mode"
         if part.split(".", 1)[0].casefold() in _WINDOWS_RESERVED:
             return f"reserved Windows device name is not allowed: {part}"
     return None
@@ -170,8 +172,8 @@ def resolve_workspace_path(
     if not ctx.under_root(resolved, root):
         return None, "path outside configured workspace root"
 
-    if project_safe_enabled() and for_write and _has_multiple_hardlinks(resolved):
-        return None, "project-safe writes to multiply-linked files are not allowed"
+    if project_safe_enabled() and _has_multiple_hardlinks(resolved):
+        return None, "project-safe access to multiply-linked files is not allowed"
 
     return resolved, None
 
