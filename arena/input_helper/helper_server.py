@@ -439,6 +439,14 @@ def main():
     parser.add_argument("--token", type=str, default="")
     args = parser.parse_args()
 
+    if os.environ.get("ARENA_PROJECT_SAFE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        print(
+            "ERROR: ARENA_PROJECT_SAFE mode disables the interactive Input Helper; "
+            "desktop input and process launch are outside the project-safe capability set.",
+            file=sys.stderr,
+        )
+        return 3
+
     global _TOKEN
     _TOKEN = args.token or os.environ.get("ARENA_INPUT_HELPER_TOKEN", "")
 
