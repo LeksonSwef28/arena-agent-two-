@@ -14,8 +14,8 @@ from .schema_utils import (
     integer_value,
     object_value,
     optional_string,
+    relative_path_value,
     sha256_value,
-    string_value,
     to_data,
     utc_value,
     uuid4_value,
@@ -52,10 +52,12 @@ class CheckpointResource:
             raise SchemaError("non-existent checkpoint resource size must be zero")
         if existed and content != backup_sha:
             raise SchemaError("checkpoint backup_sha256 must equal original content_sha256 in v1")
+        if existed and backup_ref != f"files/{backup_sha}.bin":
+            raise SchemaError("checkpoint backup_ref must be content-addressed under files/")
         return cls(
-            canonical_relative_path=string_value(
+            canonical_relative_path=relative_path_value(
                 obj["canonical_relative_path"], "checkpoint_resource.canonical_relative_path"
-            ).replace("\\", "/"),
+            ),
             existed=existed,
             size=size,
             content_sha256=content,
