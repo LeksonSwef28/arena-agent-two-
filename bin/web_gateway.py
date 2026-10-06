@@ -42,6 +42,7 @@ if not TOKEN and TOKEN_FILE.exists():
 # repo root goes on sys.path because this script is run standalone.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from arena.security_commands import SHELL_CONTROL_CHARS  # noqa: E402
+from arena.project_safe import require_project_safe_secondary_server_disabled  # noqa: E402
 
 MCP_URL = "http://127.0.0.1:8767/mcp"
 WHITELIST_PREFIXES = (
@@ -300,6 +301,7 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8769)
     a = ap.parse_args()
+    require_project_safe_secondary_server_disabled("standalone Web Gateway")
     print(f"Arena Web Gateway v{VERSION} on http://{a.host}:{a.port} (auth={bool(TOKEN)})", flush=True)
     srv = ThreadingHTTPServer((a.host, a.port), H)
     try:
