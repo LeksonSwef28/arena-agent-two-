@@ -238,8 +238,43 @@ class BrowserState:
 
 
 @dataclass(frozen=True)
+class ActiveFlowState:
+    flow_id: str
+    goal_revision: int
+    workspace_digest_baseline: str
+    workspace_digest_expected_current: str
+    created_at: str
+
+    @classmethod
+    def from_dict(cls, value: Any) -> "ActiveFlowState":
+        obj = object_value(value, "active_flow")
+        exact_keys(
+            obj,
+            {
+                "flow_id", "goal_revision", "workspace_digest_baseline",
+                "workspace_digest_expected_current", "created_at",
+            },
+            "active_flow",
+        )
+        return cls(
+            flow_id=uuid4_value(obj["flow_id"], "active_flow.flow_id") or "",
+            goal_revision=integer_value(
+                obj["goal_revision"], "active_flow.goal_revision", minimum=1
+            ),
+            workspace_digest_baseline=sha256_value(
+                obj["workspace_digest_baseline"],
+                "active_flow.workspace_digest_baseline",
+            ) or "",
+            workspace_digest_expected_current=sha256_value(
+                obj["workspace_digest_expected_current"],
+                "active_flow.workspace_digest_expected_current",
+            ) or "",
+            created_at=utc_value(obj["created_at"], "active_flow.created_at"),
+        )
+
+
+@dataclass(frozen=True)
 class ExecutionState:
-    active_flow_id: str | None
     pending_action_id: str | None
     last_terminal_action_id: str | None
     last_action_seq: int
@@ -250,11 +285,10 @@ class ExecutionState:
         obj = object_value(value, "execution")
         exact_keys(
             obj,
-            {"active_flow_id", "pending_action_id", "last_terminal_action_id", "last_action_seq", "last_event_seq"},
+            {"pending_action_id", "last_terminal_action_id", "last_action_seq", "last_event_seq"},
             "execution",
         )
         return cls(
-            active_flow_id=uuid4_value(obj["active_flow_id"], "execution.active_flow_id", optional=True),
             pending_action_id=sha256_value(obj["pending_action_id"], "execution.pending_action_id", optional=True),
             last_terminal_action_id=sha256_value(
                 obj["last_terminal_action_id"], "execution.last_terminal_action_id", optional=True
@@ -331,6 +365,7 @@ class StateSnapshot:
     lifecycle: LifecycleState
     workspace: WorkspaceState
     browser: BrowserState
+    active_flow: ActiveFlowState | None
     execution: ExecutionState
     recovery: RecoveryState | None
     limits: LimitsState
@@ -345,7 +380,7 @@ class StateSnapshot:
             {
                 "schema_version", "state_revision", "session_id", "session_fingerprint",
                 "parent_session_id", "project_fingerprint", "project", "goal",
-                "lifecycle", "workspace", "browser", "execution", "recovery",
+                "lifecycle", "workspace", "browser", "active_flow", "execution", "recovery",
                 "limits", "created_at", "updated_at",
             },
             "state",
@@ -353,11 +388,27 @@ class StateSnapshot:
         if integer_value(obj["schema_version"], "state.schema_version", minimum=1) != SCHEMA_VERSION:
             raise SchemaError("unsupported state.schema_version")
         lifecycle = LifecycleState.from_dict(obj["lifecycle"])
+        active_flow = (
+            None if obj["active_flow"] is None
+            else ActiveFlowState.from_dict(obj["active_flow"])
+        )
+        execution = ExecutionState.from_dict(obj["execution"])
         recovery = None if obj["recovery"] is None else RecoveryState.from_dict(obj["recovery"])
         if lifecycle.phase is LifecyclePhase.RECOVERY and recovery is None:
             raise SchemaError("recovery object is required during RECOVERY phase")
         if lifecycle.phase is not LifecyclePhase.RECOVERY and recovery is not None:
             raise SchemaError("recovery object must be null outside RECOVERY phase")
+        goal = GoalState.from_dict(obj["goal"])
+        if active_flow is not None and active_flow.goal_revision != goal.revision:
+            raise SchemaError("active_flow.goal_revision must match goal.revision")
+        if execution.pending_action_id is not None and active_flow is None:
+            raise SchemaError("pending action requires active_flow")
+        if lifecycle.phase in {LifecyclePhase.EXECUTING, LifecyclePhase.VERIFYING}:
+            if active_flow is None:
+                raise SchemaError(f"{lifecycle.phase.value} phase requires active_flow")
+        if lifecycle.status in {LifecycleStatus.COMPLETED, LifecycleStatus.ABORTED}:
+            if active_flow is not None or execution.pending_action_id is not None:
+                raise SchemaError("terminal session cannot retain active flow/action")
         return cls(
             schema_version=SCHEMA_VERSION,
             state_revision=integer_value(obj["state_revision"], "state.state_revision", minimum=1),
@@ -366,11 +417,12 @@ class StateSnapshot:
             parent_session_id=uuid4_value(obj["parent_session_id"], "state.parent_session_id", optional=True),
             project_fingerprint=sha256_value(obj["project_fingerprint"], "state.project_fingerprint") or "",
             project=ProjectState.from_dict(obj["project"]),
-            goal=GoalState.from_dict(obj["goal"]),
+            goal=goal,
             lifecycle=lifecycle,
             workspace=WorkspaceState.from_dict(obj["workspace"]),
             browser=BrowserState.from_dict(obj["browser"]),
-            execution=ExecutionState.from_dict(obj["execution"]),
+            active_flow=active_flow,
+            execution=execution,
             recovery=recovery,
             limits=LimitsState.from_dict(obj["limits"]),
             created_at=utc_value(obj["created_at"], "state.created_at"),
@@ -382,7 +434,7 @@ class StateSnapshot:
 
 
 __all__ = [
-    "BrowserBinding", "BrowserState", "ExecutionState", "GoalState", "LifecycleState",
+    "ActiveFlowState", "BrowserBinding", "BrowserState", "ExecutionState", "GoalState", "LifecycleState",
     "LimitsState", "ProjectState", "RecoveryState", "StateSnapshot", "WorkspaceBaseline",
     "WorkspaceState",
 ]
