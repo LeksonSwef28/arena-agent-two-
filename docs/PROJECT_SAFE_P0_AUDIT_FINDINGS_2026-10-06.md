@@ -6,7 +6,7 @@ Audit mode: **ingress/lifecycle audit complete; P0-A/P0-B implementation added a
 
 ## Executive result
 
-**P0 status: FAIL (P0-A/P0-B/P0-C/P0-D implemented; runtime validation still incomplete).**
+**P0 status: TARGETED WINDOWS PASS (P0-A/P0-B/P0-C/P0-D implemented and 55/55 targeted tests passed on Windows).**
 
 Implementation commits after the audit:
 
@@ -16,11 +16,14 @@ Implementation commits after the audit:
 
 Current test evidence:
 
-- regression tests are present in the branch;
-- GitHub Actions produced no workflow run/status for the fork commit;
-- the assistant execution environment could not clone GitHub because outbound
-  DNS/network access was unavailable;
-- therefore test execution is **NOT RUN / PENDING**, not PASS.
+- GitHub Actions is enabled in the fork;
+- targeted workflow `Project Safe Windows` ran on Windows Server 2025 with
+  Python 3.12.10;
+- run `37514295813` completed successfully;
+- **55/55 targeted P0 tests passed with no skips**;
+- the Windows-only junction/reparse test therefore executed successfully.
+
+See `docs/PROJECT_SAFE_P0_WINDOWS_VALIDATION_2026-10-06.md`.
 
 The current branch has a useful project-safe MCP/tool gate and a project-root
 helper, but it is **not yet a complete security boundary for the Arena process**.
@@ -469,9 +472,12 @@ P0-A, P0-B, P0-C and P0-D have now been implemented.
 **Stop here before P1.** The next block is validation, not architecture or new
 features.
 
-GitHub Actions still reports no workflow run/status for the current fork commit,
-so P0 execution evidence is **NOT RUN / PENDING**, not PASS. P0-C additionally
-requires real Windows execution evidence for junction/reparse behavior.
+The targeted Windows P0 workflow is now green: run `37514295813` passed
+55/55 tests on Windows Server 2025 / Python 3.12.10 with no skips.
+
+This satisfies the machine-executed Windows evidence requirement for the
+targeted P0 gate. An optional smoke test on the operator's exact Windows 10
+machine remains an operational check, not a blocker for architecture work.
 
 What is now known:
 
