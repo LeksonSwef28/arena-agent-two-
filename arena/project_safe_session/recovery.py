@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .lease import ProjectLease
+from .models import StateSnapshot
 from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import (
     ActionState,
-    EffectStatus,
     LifecycleStatus,
     RecoveryReason,
 )
