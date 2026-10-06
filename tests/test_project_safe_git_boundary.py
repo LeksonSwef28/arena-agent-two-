@@ -30,6 +30,9 @@ def test_project_safe_git_subprocess_strips_ambient_git_execution_controls(monke
     assert "GIT_EXTERNAL_DIFF" not in captured["env"]
     assert "GIT_DIR" not in captured["env"]
     assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
+    assert captured["env"]["GIT_OPTIONAL_LOCKS"] == "0"
+    assert captured["env"]["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert captured["env"]["GIT_CONFIG_GLOBAL"] == os.devnull
 
 
 def test_project_safe_revision_rejects_option_injection_without_running_git(monkeypatch, tmp_path):
