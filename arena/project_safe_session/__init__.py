@@ -21,3 +21,36 @@ __all__ = [
     "project_fingerprint",
     "resolve_project_safe_state_root",
 ]
+
+from .canonical import canonical_json_bytes, canonical_sha256
+from .models import (
+    ActionState,
+    BrowserRole,
+    CheckpointKind,
+    CheckpointManifest,
+    EffectStatus,
+    FileResourceBefore,
+    JournalRecord,
+    LifecyclePhase,
+    LifecycleReason,
+    LifecycleStatus,
+    SchemaError,
+    StateSnapshot,
+)
+
+__all__ += [
+    "ActionState",
+    "BrowserRole",
+    "CheckpointKind",
+    "CheckpointManifest",
+    "EffectStatus",
+    "FileResourceBefore",
+    "JournalRecord",
+    "LifecyclePhase",
+    "LifecycleReason",
+    "LifecycleStatus",
+    "SchemaError",
+    "StateSnapshot",
+    "canonical_json_bytes",
+    "canonical_sha256",
+]
