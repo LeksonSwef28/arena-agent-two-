@@ -15,6 +15,7 @@ from arena.project_safe_session import (
     ProjectSafeSessionStore,
     StateRevisionError,
     compute_action_id,
+    compute_args_hash,
     compute_attempt_id,
     StateSnapshot,
     StorageError,
@@ -28,6 +29,8 @@ SHA256_B = "b" * 64
 SHA256_C = "c" * 64
 SHA1_A = "a" * 40
 NOW = "2026-10-07T01:30:00Z"
+ACTION_ARGS = {"path": "src/foo.py"}
+ACTION_ARGS_HASH = compute_args_hash(ACTION_ARGS)
 
 
 def _uuid() -> str:
@@ -103,7 +106,7 @@ def _action_id(session_id: str) -> str:
         proposal_digest=SHA256_B,
         action_type="fs.edit",
         effect_target_fingerprint=SHA256_C,
-        args_hash=SHA256_A,
+        args_hash=ACTION_ARGS_HASH,
     )
 
 
@@ -137,7 +140,7 @@ def _draft(
         "effect_target_fingerprint": SHA256_C,
         "risk": "dangerous",
         "input": {
-            "args_hash": SHA256_A,
+            "args_hash": ACTION_ARGS_HASH,
             "payload_ref": payload_ref,
             "payload_sha256": payload_sha256,
             "summary": {"path": "src/foo.py", "op": "edit"},
@@ -220,9 +223,10 @@ def test_action_journal_owns_sequence_and_hash_chain(tmp_path: Path):
     _, lease, store = _store(tmp_path)
     try:
         action_id = _action_id(store.session_id)
-        payload_ref, payload_sha = store.write_action_payload(
-            action_id, "input.json", b'{"path":"src/foo.py"}'
+        payload_ref, args_hash, payload_sha = store.write_action_input(
+            action_id, ACTION_ARGS
         )
+        assert args_hash == ACTION_ARGS_HASH
         first = store.append_action(
             _draft(store.session_id, action_id, payload_ref, payload_sha)
         )
@@ -257,9 +261,10 @@ def test_action_journal_detects_hash_chain_corruption(tmp_path: Path):
     _, lease, store = _store(tmp_path)
     try:
         action_id = _action_id(store.session_id)
-        payload_ref, payload_sha = store.write_action_payload(
-            action_id, "input.json", b'{"path":"src/foo.py"}'
+        payload_ref, args_hash, payload_sha = store.write_action_input(
+            action_id, ACTION_ARGS
         )
+        assert args_hash == ACTION_ARGS_HASH
         store.append_action(
             _draft(store.session_id, action_id, payload_ref, payload_sha)
         )
@@ -292,9 +297,10 @@ def test_valid_record_without_newline_is_accepted_and_repaired_before_append(tmp
     _, lease, store = _store(tmp_path)
     try:
         action_id = _action_id(store.session_id)
-        payload_ref, payload_sha = store.write_action_payload(
-            action_id, "input.json", b'{"path":"src/foo.py"}'
+        payload_ref, args_hash, payload_sha = store.write_action_input(
+            action_id, ACTION_ARGS
         )
+        assert args_hash == ACTION_ARGS_HASH
         first = store.append_action(
             _draft(store.session_id, action_id, payload_ref, payload_sha)
         )
