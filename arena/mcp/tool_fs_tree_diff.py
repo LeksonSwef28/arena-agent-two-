@@ -18,6 +18,7 @@ from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
+_MCP_BLOCKED_FILES_CASEFOLD = frozenset(name.casefold() for name in _MCP_BLOCKED_FILES)
 
 # Safety limits
 _MAX_TREE_ENTRIES = 1000
@@ -26,7 +27,7 @@ _MAX_DIFF_SIZE = 512 * 1024  # 512 KB per file for diff
 
 def _validate_path(path_str: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
     """Validate that path stays inside the configured workspace root."""
-    if Path(path_str).name in _MCP_BLOCKED_FILES:
+    if Path(path_str).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
         return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: accessing {Path(path_str).name} is not allowed"}]}
     resolved, reason = resolve_workspace_path(path_str, ctx)
     if reason:
