@@ -318,6 +318,14 @@ class InputHandler(BaseHTTPRequestHandler):
         pass
 
     def _check_auth(self) -> bool:
+        if os.environ.get("ARENA_PROJECT_SAFE", "").strip().lower() in {"1", "true", "yes", "on"}:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(
+                b'{"ok":false,"error":"PROJECT-SAFE mode disables this helper at request time"}'
+            )
+            return False
+
         # v4.164.0 (bug #54): this used to be `if not _TOKEN: return True`,
         # so a helper started without a token served every endpoint to
         # anything that could reach the port -- including POST /launch,
