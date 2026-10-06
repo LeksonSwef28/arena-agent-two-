@@ -15,7 +15,7 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "BRIDGE_DIR=%~dp0"
-if "%BRIDGE_DIR:~-1%"=="\\" set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
+if "%BRIDGE_DIR:~-1%"=="\" set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
 set "PORT=8765"
 set "STATE_DIR=!BRIDGE_DIR!\.arena-state"
 set "TOKEN_FILE=!STATE_DIR!\token.txt"

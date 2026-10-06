@@ -4,7 +4,7 @@
     {
       "label": "Arena: project-safe read-only",
       "type": "shell",
-      "command": "${workspaceFolder}\\\\start.bat",
+      "command": "${workspaceFolder}\\start.bat",
       "args": [
         "${input:arenaProjectRoot}",
         "read"
@@ -22,7 +22,7 @@
     {
       "label": "Arena: project-safe workspace-write",
       "type": "shell",
-      "command": "${workspaceFolder}\\\\start.bat",
+      "command": "${workspaceFolder}\\start.bat",
       "args": [
         "${input:arenaProjectRoot}",
         "write"

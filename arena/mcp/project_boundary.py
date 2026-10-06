@@ -32,6 +32,9 @@ def resolve_workspace_path(raw_path: str, ctx: Any) -> tuple[Path | None, str | 
         return None, "path is not usable (embedded NUL)"
     try:
         root = workspace_root(ctx)
+    except (ValueError, OSError, RuntimeError) as exc:
+        return None, str(exc)
+    try:
         candidate = Path(raw_path).expanduser()
         if not candidate.is_absolute():
             candidate = root / candidate
