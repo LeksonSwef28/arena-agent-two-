@@ -85,7 +85,7 @@ def _build_tree(
     if depth >= max_depth or len(entries) >= _MAX_TREE_ENTRIES:
         return
     try:
-        items = sorted(dir_path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        items = sorted(dir_path.iterdir(), key=lambda p: p.name.lower())
     except (PermissionError, OSError):
         return
 
