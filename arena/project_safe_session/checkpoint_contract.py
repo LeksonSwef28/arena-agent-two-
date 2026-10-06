@@ -110,6 +110,18 @@ def build_checkpoint_manifest(
         checked_kind = kind
 
     resource_list = list(resources)
+    if checked_kind is CheckpointKind.SESSION_BASELINE and checked_action is not None:
+        raise CheckpointContractError("SESSION_BASELINE checkpoint must not have action_id")
+    if checked_kind in {CheckpointKind.RESOURCE_BEFORE, CheckpointKind.RESOURCE_AFTER}:
+        if checked_action is None:
+            raise CheckpointContractError(
+                f"{checked_kind.value} checkpoint requires action_id"
+            )
+        if not resource_list:
+            raise CheckpointContractError(
+                f"{checked_kind.value} checkpoint requires at least one resource"
+            )
+
     raw = {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": checked_checkpoint,
