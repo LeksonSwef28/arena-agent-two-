@@ -502,9 +502,11 @@ Run `37514295813` executed on Windows Server 2025 / Python 3.12.10 and passed
 **55/55 P0 tests with no skips**, including the Windows-only junction/reparse
 case.
 
-Therefore the **targeted P0 Windows gate is PASS**. An optional smoke test on
-the operator's exact Windows 10 machine remains useful before first real use,
-but it is not required to begin P1 architecture work.
+The operator also repeated the same targeted suite on Windows 10 / Python
+3.12.11: **55/55 passed**, and the Windows junction/reparse regression passed.
+
+Therefore **P0 is CLOSED**. P1 contract work may begin. The documented residual
+TOCTOU limitation remains unchanged.
 
 ## 14. Explicit non-goals / rejected shortcuts
 
