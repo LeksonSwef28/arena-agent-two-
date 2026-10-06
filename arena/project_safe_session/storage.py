@@ -17,9 +17,14 @@ from .action_contract import (
     validate_action_record,
 )
 from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads
+from .checkpoint_contract import (
+    CheckpointContractError,
+    canonical_file_bytes_sha256,
+    validate_checkpoint_manifest_digest,
+)
 from .event_models import SessionEventRecord
 from .lease import ProjectLease
-from .models import JournalRecord, StateSnapshot
+from .models import CheckpointManifest, JournalRecord, StateSnapshot
 from .paths import project_fingerprint
 from .schema_types import SCHEMA_VERSION
 from .schema_utils import SchemaError, exact_keys, relative_path_value, sha256_value, uuid4_value
@@ -49,6 +54,10 @@ class TruncatedLastRecordError(StorageError):
 
 class PayloadIntegrityError(StorageError):
     """Immutable payload bytes are missing or do not match the recorded digest."""
+
+
+class CheckpointIntegrityError(StorageError):
+    """Checkpoint manifest or backup payload is missing/corrupt/inconsistent."""
 
 
 @dataclass(frozen=True)
@@ -385,6 +394,130 @@ class ProjectSafeSessionStore:
             )
             return record
 
+
+    def _checkpoint_dir(self, checkpoint_id: str) -> Path:
+        checked = uuid4_value(checkpoint_id, "checkpoint_id")
+        assert checked is not None
+        return self.checkpoints_dir / checked
+
+    def read_checkpoint(self, checkpoint_id: str) -> CheckpointManifest:
+        checkpoint_dir = self._checkpoint_dir(checkpoint_id)
+        manifest_path = checkpoint_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise CheckpointIntegrityError(
+                f"checkpoint is not published: {checkpoint_id}"
+            )
+        try:
+            raw = strict_json_loads(manifest_path.read_bytes())
+            manifest = CheckpointManifest.from_dict(raw)
+            validate_checkpoint_manifest_digest(manifest)
+        except (OSError, ValueError, CheckpointContractError) as exc:
+            raise CheckpointIntegrityError(
+                f"invalid checkpoint manifest {checkpoint_id}: {exc}"
+            ) from exc
+
+        if manifest.session_id != self.session_id:
+            raise CheckpointIntegrityError("checkpoint session_id does not match store")
+
+        for resource in manifest.resources:
+            if not resource.existed:
+                continue
+            assert resource.backup_ref is not None
+            assert resource.backup_sha256 is not None
+            backup_path = checkpoint_dir / relative_path_value(
+                resource.backup_ref,
+                "checkpoint backup_ref",
+            )
+            try:
+                data = backup_path.read_bytes()
+            except OSError as exc:
+                raise CheckpointIntegrityError(
+                    f"missing checkpoint backup {resource.backup_ref}: {exc}"
+                ) from exc
+            digest = canonical_file_bytes_sha256(data)
+            if len(data) != resource.size:
+                raise CheckpointIntegrityError(
+                    f"checkpoint backup size mismatch for {resource.canonical_relative_path}"
+                )
+            if digest != resource.backup_sha256 or digest != resource.content_sha256:
+                raise CheckpointIntegrityError(
+                    f"checkpoint backup digest mismatch for {resource.canonical_relative_path}"
+                )
+        return manifest
+
+    def write_checkpoint(
+        self,
+        manifest: CheckpointManifest,
+        backup_payloads: Mapping[str, bytes],
+    ) -> None:
+        """Durably publish backups first and manifest last."""
+        with self._lock:
+            self._require_lease()
+            if manifest.session_id != self.session_id:
+                raise CheckpointIntegrityError("checkpoint session_id does not match store")
+            try:
+                validate_checkpoint_manifest_digest(manifest)
+            except CheckpointContractError as exc:
+                raise CheckpointIntegrityError(str(exc)) from exc
+
+            checkpoint_dir = self._checkpoint_dir(manifest.checkpoint_id)
+            manifest_path = checkpoint_dir / "manifest.json"
+
+            expected: dict[str, tuple[int, str]] = {}
+            for resource in manifest.resources:
+                if not resource.existed:
+                    continue
+                assert resource.backup_ref is not None
+                assert resource.backup_sha256 is not None
+                ref = relative_path_value(resource.backup_ref, "checkpoint backup_ref")
+                expected[ref] = (resource.size, resource.backup_sha256)
+
+            supplied = {
+                relative_path_value(key, "checkpoint backup_ref"): value
+                for key, value in backup_payloads.items()
+            }
+            if set(supplied) != set(expected):
+                raise CheckpointIntegrityError(
+                    "checkpoint backup payload set does not match manifest"
+                )
+            for ref, data in supplied.items():
+                if not isinstance(data, bytes):
+                    raise CheckpointIntegrityError(
+                        f"checkpoint backup {ref} must be bytes"
+                    )
+                expected_size, expected_sha = expected[ref]
+                actual_sha = canonical_file_bytes_sha256(data)
+                if len(data) != expected_size or actual_sha != expected_sha:
+                    raise CheckpointIntegrityError(
+                        f"checkpoint backup bytes do not match manifest: {ref}"
+                    )
+
+            if manifest_path.exists():
+                existing = self.read_checkpoint(manifest.checkpoint_id)
+                if existing != manifest:
+                    raise CheckpointIntegrityError(
+                        "published checkpoint_id already belongs to different manifest"
+                    )
+                return
+
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            for ref, data in supplied.items():
+                backup_path = checkpoint_dir / ref
+                if backup_path.exists():
+                    existing = backup_path.read_bytes()
+                    if existing != data:
+                        raise CheckpointIntegrityError(
+                            f"partial checkpoint backup conflicts with retry: {ref}"
+                        )
+                    continue
+                _durable_replace(backup_path, data)
+
+            _durable_replace(
+                manifest_path,
+                canonical_json_bytes(manifest.to_dict()) + b"\n",
+            )
+            self.read_checkpoint(manifest.checkpoint_id)
+
     def write_action_input(
         self,
         action_id: str,
@@ -441,7 +574,7 @@ class ProjectSafeSessionStore:
 
 
 __all__ = [
-    "JournalCorruptionError", "JournalReadResult", "LeaseRequiredError",
-    "PayloadIntegrityError", "ProjectSafeSessionStore", "StateRevisionError",
+    "CheckpointIntegrityError", "JournalCorruptionError", "JournalReadResult",
+    "LeaseRequiredError", "PayloadIntegrityError", "ProjectSafeSessionStore", "StateRevisionError",
     "StorageError", "TruncatedLastRecordError",
 ]
