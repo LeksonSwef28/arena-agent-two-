@@ -217,6 +217,7 @@ class ProjectSafeSessionStore:
             raise LeaseRequiredError("project lease is no longer held")
 
     def read_state(self) -> StateSnapshot | None:
+        self._require_lease()
         if not self.state_path.exists():
             return None
         try:
@@ -257,6 +258,7 @@ class ProjectSafeSessionStore:
             _durable_replace(self.state_path, canonical_json_bytes(state.to_dict()) + b"\n")
 
     def read_actions(self) -> JournalReadResult[JournalRecord]:
+        self._require_lease()
         result = _read_journal(
             self.actions_path,
             parser=JournalRecord.from_dict,
@@ -277,6 +279,7 @@ class ProjectSafeSessionStore:
         return result
 
     def read_events(self) -> JournalReadResult[SessionEventRecord]:
+        self._require_lease()
         return _read_journal(
             self.events_path,
             parser=SessionEventRecord.from_dict,
@@ -401,6 +404,7 @@ class ProjectSafeSessionStore:
         return self.checkpoints_dir / checked
 
     def read_checkpoint(self, checkpoint_id: str) -> CheckpointManifest:
+        self._require_lease()
         checkpoint_dir = self._checkpoint_dir(checkpoint_id)
         manifest_path = checkpoint_dir / "manifest.json"
         if not manifest_path.exists():
@@ -555,6 +559,7 @@ class ProjectSafeSessionStore:
             return relative, digest
 
     def read_action_payload(self, relative_ref: str, expected_sha256: str) -> bytes:
+        self._require_lease()
         relative = relative_path_value(relative_ref, "payload_ref")
         expected = sha256_value(expected_sha256, "payload_sha256")
         assert expected is not None
