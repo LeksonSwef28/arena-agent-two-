@@ -488,16 +488,18 @@ See:
 - **P0-B:** IMPLEMENTED — project-safe startup disables task runner, file-watch,
   mission scheduler, ydotoold, post-update smoke and tunnel autostarts; normal
   mode remains unchanged. Test execution remains PENDING.
-- **P0-C:** NOT STARTED — harden Windows path handling and execute Windows-only boundary
-  tests, including case-insensitive `.git`, UNC/drive-relative/device paths,
-  reparse/junction escape, nonexistent targets and TOCTOU strategy;
+- **P0-C:** IMPLEMENTED — canonical/lexical containment, Windows path-shape
+  rejection, case-insensitive protected names, reparse/hardlink write/read
+  policy, recursive traversal validation and project-safe Git hardening are in
+  the branch. Windows execution evidence remains PENDING.
 - **P0-D:** NOT STARTED — prevent standalone/secondary execution servers from
   bypassing the canonical policy.
 
 Validation note: GitHub Actions has not produced workflow runs/statuses for the
 fork branch, and the assistant runtime could not clone GitHub because outbound
-network/DNS was unavailable. Therefore the current P0-A/P0-B state is
-**IMPLEMENTED / NOT RUN**, not PASS.
+network/DNS was unavailable. Therefore P0-A/P0-B/P0-C are currently
+**IMPLEMENTED / NOT RUN**, not PASS. P0-C additionally requires real Windows
+execution evidence for junction/reparse behavior.
 
 No P1 implementation begins until those are evidenced as PASS.
 
