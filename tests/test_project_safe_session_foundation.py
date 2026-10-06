@@ -1,6 +1,7 @@
 """P1-A1 project-safe state-root and kernel lease regression tests."""
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,8 +73,10 @@ def test_live_project_lease_blocks_second_owner(tmp_path: Path):
     try:
         assert first.held
         assert first.lock_path is not None and first.lock_path.exists()
-        with pytest.raises(ProjectLeaseBusyError):
+        with pytest.raises(ProjectLeaseBusyError) as exc_info:
             second.acquire()
+        if os.name == "nt":
+            assert exc_info.value.native_error == 32
     finally:
         first.release()
 
@@ -129,3 +132,64 @@ time.sleep(60)
     # The lock file may remain, but kernel ownership died with the process.
     with ProjectLease(project, state) as recovered:
         assert recovered.held
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Win32 sharing semantics")
+def test_two_processes_contend_with_sharing_violation_then_retry_succeeds(tmp_path: Path):
+    project = _project(tmp_path)
+    state = tmp_path / "state"
+
+    holder_code = r"""
+import sys
+import time
+from arena.project_safe_session import ProjectLease
+
+lease = ProjectLease(sys.argv[1], sys.argv[2]).acquire()
+print("READY", flush=True)
+time.sleep(60)
+"""
+    contender_code = r"""
+import sys
+from arena.project_safe_session import ProjectLease, ProjectLeaseBusyError
+
+try:
+    lease = ProjectLease(sys.argv[1], sys.argv[2]).acquire()
+except ProjectLeaseBusyError as exc:
+    print(f"BUSY:{exc.native_error}", flush=True)
+    raise SystemExit(32)
+else:
+    print("ACQUIRED", flush=True)
+    lease.release()
+"""
+
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_code, str(project), str(state)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "READY"
+
+        contender = subprocess.run(
+            [sys.executable, "-c", contender_code, str(project), str(state)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert contender.returncode == 32, contender.stderr
+        assert contender.stdout.strip() == "BUSY:32"
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+        holder.wait(timeout=10)
+
+    retry = subprocess.run(
+        [sys.executable, "-c", contender_code, str(project), str(state)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert retry.returncode == 0, retry.stderr
+    assert retry.stdout.strip() == "ACQUIRED"
