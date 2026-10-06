@@ -1,6 +1,6 @@
 # P0 Windows Validation — 2026-10-06
 
-Status: **PASS (targeted Windows CI)**
+Status: **PASS / CLOSED (targeted Windows CI + operator Windows 10 smoke)**
 
 Workflow:
 
@@ -39,14 +39,33 @@ without any outside-file disclosure. The test was corrected to assert that the
 outside target path / symlink entry is not exposed. The subsequent Windows run
 passed.
 
+## Operator Windows 10 smoke
+
+The same branch was cloned on the operator's Windows 10 machine at commit
+`7d132e03d2569f84e36050ac2dc3409171e0771f` and tested with Python 3.12.11.
+
+Result:
+
+- the same targeted seven-file P0 suite completed **55/55 passed**;
+- the Windows junction test
+  `test_windows_junction_escape_is_refused` executed and passed;
+- the isolated junction command later emitted the repository-wide coverage
+  threshold failure because that one test covers only a tiny fraction of the
+  entire Arena package. The test result itself was `1 passed, 24 deselected`.
+  This is a coverage-policy artifact, not a boundary failure. The full targeted
+  suite had already been run with `--no-cov` and was green.
+
 ## Acceptance meaning
 
-This establishes a real Windows execution proof for the P0-A/B/C/D targeted
-security suite.
+This establishes real Windows execution proof for the P0-A/B/C/D targeted
+security suite on both:
 
-It does **not** prove every upstream Arena regression test, nor does it replace
-an optional smoke test on the operator's exact Windows 10 machine before first
-real use.
+1. GitHub-hosted Windows Server 2025 / Python 3.12.10; and
+2. the operator's Windows 10 environment / Python 3.12.11.
+
+The P0 Windows validation gate is therefore **closed**.
+
+It does **not** prove every upstream Arena regression test.
 
 The remaining documented residual risk is TOCTOU between the final userspace
 path validation and kernel file open. Project-safe narrows that window and
