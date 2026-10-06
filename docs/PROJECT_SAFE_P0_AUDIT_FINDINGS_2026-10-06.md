@@ -2,11 +2,25 @@
 
 Date: 2026-10-06  
 Branch audited: `hardening/project-safe-v0`  
-Audit mode: **read-only code review / no new functional security patch in this block**
+Audit mode: **ingress/lifecycle audit complete; P0-A/P0-B implementation added afterward**
 
 ## Executive result
 
-**P0 status: FAIL (expected at this stage).**
+**P0 status: FAIL (P0-A/P0-B implemented, validation incomplete; P0-C/P0-D still open).**
+
+Implementation commits after the audit:
+
+- P0-A HTTP fail-closed gate: `4a37d8025018f24c64088925340407d2e6688a28`
+- P0-B project-safe lifecycle restrictions: `8246ac5bb90fae4979fc6a986341678cd78b075f`
+- HTTP middleware integration tests added: `d2250f20ffc03fa47475a6e274e1bca86cb2b9dd`
+
+Current test evidence:
+
+- regression tests are present in the branch;
+- GitHub Actions produced no workflow run/status for the fork commit;
+- the assistant execution environment could not clone GitHub because outbound
+  DNS/network access was unavailable;
+- therefore test execution is **NOT RUN / PENDING**, not PASS.
 
 The current branch has a useful project-safe MCP/tool gate and a project-root
 helper, but it is **not yet a complete security boundary for the Arena process**.
@@ -313,6 +327,17 @@ Required work, in priority order:
 
 ### P0-A — app-level HTTP fail-closed middleware
 
+**Implementation status: IMPLEMENTED / TEST EXECUTION PENDING.**
+
+The unified aiohttp app now installs `project_safe_http_middleware` before the
+existing error middleware. When `ARENA_PROJECT_SAFE=1`, exact method/path pairs
+are allowlisted and all unknown/unreviewed routes fail closed with 403.
+
+The current reviewed surface includes health/version/status, control status +
+emergency halt, required MCP transports and the browser-extension
+status/policies/instructions/preview/execute endpoints. The extension source was
+checked against this list; its localhost calls are covered.
+
 When `ARENA_PROJECT_SAFE=1`, allow only a deliberately small route set such as:
 
 - health/version/minimal status;
@@ -327,6 +352,20 @@ Everything else defaults to 403.
 Do **not** enumerate dangerous routes. Enumerate allowed routes.
 
 ### P0-B — project-safe lifecycle
+
+**Implementation status: IMPLEMENTED / TEST EXECUTION PENDING.**
+
+In project-safe mode the normal lifecycle no longer starts:
+
+- task runner;
+- file-watch loop;
+- mission scheduler;
+- `ydotoold` desktop automation daemon;
+- post-update smoke execution;
+- tunnel autostart hooks for cloudflared/ngrok/tailscale/bore.
+
+Log cleanup and the health-only watchdog remain enabled. Normal upstream mode
+keeps the original startup behavior.
 
 Do not start latent execution systems in project-safe mode:
 
@@ -359,7 +398,8 @@ policy rather than maintain a HOME-based parallel jail.
 
 ## 8. Stop point
 
-Per the agreed workflow, **stop here before further functional code changes**.
+P0-A and P0-B have now been implemented. Per the agreed workflow, **stop here
+before P0-C/P0-D functional changes** and review/test this slice first.
 
 What is now known:
 
