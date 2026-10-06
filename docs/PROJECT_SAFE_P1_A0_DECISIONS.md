@@ -115,15 +115,29 @@ admission fails closed with `UNSUPPORTED_REPO_LAYOUT`.
 Submodule contents are never silently omitted from a supposedly complete
 workspace guard.
 
-## Three workspace digest roles
+## Workspace digest roles and flow progression
 
 The names are deliberately distinct:
 
-- `flow.workspace_digest_baseline` — admission source for the flow workspace
-  guard;
-- `session.workspace_digest_last_verified` — last verified session evidence;
-- `action.workspace_digest_context` — evidence copied from the relevant flow
-  context when the action was prepared.
+- `flow.workspace_digest_baseline` — immutable evidence of the Git-visible
+  workspace when the flow was created;
+- `flow.workspace_digest_expected_current` — mutable admission target for the
+  next action in that flow; initialized to `baseline`, and advanced only
+  after a project-safe action reaches `SUCCEEDED` with deterministic
+  verification of its resulting workspace;
+- `session.workspace_digest_last_verified` — latest verified session evidence;
+- `action.workspace_digest_context` — evidence copied from
+  `flow.workspace_digest_expected_current` when the action is prepared.
+
+The distinction is necessary for multi-action flows. If admission compared
+every action forever against the immutable flow baseline, the first legitimate
+mutation would make the second legitimate action look like external
+`WORKSPACE_DRIFT`.
+
+External/unexpected changes remain fail-closed because the current workspace
+must equal `flow.workspace_digest_expected_current` immediately before
+execution. Only our own successfully verified action may advance that expected
+value.
 
 The action ID does not contain a global workspace digest. Logical identity and
 admission are separate concerns.
