@@ -101,6 +101,7 @@ from .workspace import (
     file_effect_target_fingerprint,
     read_file_resource_backup_v1,
     validate_file_resource_cas,
+    workspace_is_clean_v1,
 )
 
 __all__ += [
@@ -120,6 +121,7 @@ __all__ += [
     "file_effect_target_fingerprint",
     "read_file_resource_backup_v1",
     "validate_file_resource_cas",
+    "workspace_is_clean_v1",
 ]
 
 from .action_contract import (
@@ -172,4 +174,20 @@ __all__ += [
     "ProjectRegistryStore",
     "RegistryError",
     "RegistryRevisionError",
+]
+
+from .coordinator import (
+    ProjectSafeSessionCoordinator,
+    SessionAdmissionError,
+    SessionCoordinatorError,
+    normalize_goal_v1,
+    session_fingerprint_v1,
+)
+
+__all__ += [
+    "ProjectSafeSessionCoordinator",
+    "SessionAdmissionError",
+    "SessionCoordinatorError",
+    "normalize_goal_v1",
+    "session_fingerprint_v1",
 ]
