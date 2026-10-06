@@ -6,7 +6,7 @@ Audit mode: **ingress/lifecycle audit complete; P0-A/P0-B implementation added a
 
 ## Executive result
 
-**P0 status: FAIL (P0-A/P0-B implemented, validation incomplete; P0-C/P0-D still open).**
+**P0 status: FAIL (P0-A/P0-B/P0-C implemented, validation incomplete; P0-D still open).**
 
 Implementation commits after the audit:
 
@@ -379,6 +379,45 @@ Review file watcher/watchdog separately.
 
 ### P0-C — Windows canonical boundary hardening
 
+**Implementation status: IMPLEMENTED / WINDOWS EXECUTION PENDING.**
+
+Implemented protections now include:
+
+- lexical containment before canonical containment;
+- case-insensitive `.git` protection;
+- project-safe root must exist and must not itself be a symlink/junction/reparse
+  point;
+- Windows drive-relative paths denied;
+- UNC paths denied for project-safe v0;
+- Windows device/extended namespaces denied;
+- NTFS alternate data stream syntax denied;
+- trailing-dot/trailing-space Win32 aliases denied;
+- reserved DOS device names denied;
+- 8.3 short-name shaped aliases denied;
+- read/write hardlink access denied in project-safe mode;
+- project-safe writes through existing symlink/junction/reparse components
+  denied;
+- nonexistent write leaves remain supported when their parents are safe;
+- write paths are revalidated immediately before filesystem writes to reduce the
+  TOCTOU window;
+- recursive `fs.search` and `fs.tree` now canonicalize every discovered entry
+  rather than trusting only the starting directory;
+- sensitive basenames are compared case-insensitively;
+- project-safe Git strips ambient `GIT_*` execution controls, disables hooks,
+  fsmonitor, optional index locks, global/system config influence, ext-diff and
+  textconv; option-like revision input is rejected and accepted revisions are
+  resolved to immutable commit SHAs.
+
+Regression coverage added for traversal, sibling-prefix paths, `.GIT`,
+nonexistent targets, symlink escape, hardlinks, Windows path syntax, Windows
+junction escape, recursive filesystem escape and Git option/helper behavior.
+
+**Residual boundary note:** Python path validation cannot fully eliminate a
+malicious concurrent TOCTOU swap between the final validation and kernel file
+open. The implementation narrows the window and rejects reparse-bearing write
+paths, but OS-level isolation / handle-based containment remains the hard
+backstop if that stronger threat model is required.
+
 Extend the canonical boundary helper and add Windows-targeted tests for the
 matrix above, especially:
 
@@ -398,8 +437,11 @@ policy rather than maintain a HOME-based parallel jail.
 
 ## 8. Stop point
 
-P0-A and P0-B have now been implemented. Per the agreed workflow, **stop here
-before P0-C/P0-D functional changes** and review/test this slice first.
+P0-A, P0-B and P0-C have now been implemented. Per the agreed workflow,
+**stop here before P0-D functional changes** and review/test this slice first.
+
+GitHub Actions still reports no workflow run/status for the current fork commit,
+so P0-C Windows execution evidence is **NOT RUN / PENDING**, not PASS.
 
 What is now known:
 
