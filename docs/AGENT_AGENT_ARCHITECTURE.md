@@ -492,16 +492,19 @@ See:
   rejection, case-insensitive protected names, reparse/hardlink write/read
   policy, recursive traversal validation and project-safe Git hardening are in
   the branch. Windows execution evidence remains PENDING.
-- **P0-D:** NOT STARTED — prevent standalone/secondary execution servers from
-  bypassing the canonical policy.
+- **P0-D:** IMPLEMENTED — standalone MCP HTTP/WS, gRPC-style secondary
+  interface, Web Gateway, Input Helper and Serena MCP spawn are refused before
+  bind/task/process creation in project-safe mode; standalone dispatchers and
+  manually hosted handlers also fail closed.
 
 Validation note: GitHub Actions has not produced workflow runs/statuses for the
 fork branch, and the assistant runtime could not clone GitHub because outbound
-network/DNS was unavailable. Therefore P0-A/P0-B/P0-C are currently
+network/DNS was unavailable. Therefore P0-A/P0-B/P0-C/P0-D are currently
 **IMPLEMENTED / NOT RUN**, not PASS. P0-C additionally requires real Windows
 execution evidence for junction/reparse behavior.
 
-No P1 implementation begins until those are evidenced as PASS.
+No P1 implementation begins until the targeted P0 validation run passes on the
+intended Windows environment.
 
 ## 14. Explicit non-goals / rejected shortcuts
 
