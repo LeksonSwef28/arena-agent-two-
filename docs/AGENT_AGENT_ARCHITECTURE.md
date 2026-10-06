@@ -497,14 +497,14 @@ See:
   bind/task/process creation in project-safe mode; standalone dispatchers and
   manually hosted handlers also fail closed.
 
-Validation note: GitHub Actions has not produced workflow runs/statuses for the
-fork branch, and the assistant runtime could not clone GitHub because outbound
-network/DNS was unavailable. Therefore P0-A/P0-B/P0-C/P0-D are currently
-**IMPLEMENTED / NOT RUN**, not PASS. P0-C additionally requires real Windows
-execution evidence for junction/reparse behavior.
+Validation note: the targeted `Project Safe Windows` workflow is now green.
+Run `37514295813` executed on Windows Server 2025 / Python 3.12.10 and passed
+**55/55 P0 tests with no skips**, including the Windows-only junction/reparse
+case.
 
-No P1 implementation begins until the targeted P0 validation run passes on the
-intended Windows environment.
+Therefore the **targeted P0 Windows gate is PASS**. An optional smoke test on
+the operator's exact Windows 10 machine remains useful before first real use,
+but it is not required to begin P1 architecture work.
 
 ## 14. Explicit non-goals / rejected shortcuts
 
