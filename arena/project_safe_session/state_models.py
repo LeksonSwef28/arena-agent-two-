@@ -10,6 +10,7 @@ from .schema_types import (
     LifecyclePhase,
     LifecycleReason,
     LifecycleStatus,
+    RecoveryReason,
     RequestedMode,
     SCHEMA_VERSION,
 )
@@ -301,10 +302,10 @@ class ExecutionState:
 @dataclass(frozen=True)
 class RecoveryState:
     recovery_id: str
-    reason: str
-    interrupted_action_id: str
+    reason: RecoveryReason
+    interrupted_action_id: str | None
     detected_at: str
-    workspace_checkpoint_id: str
+    workspace_checkpoint_id: str | None
 
     @classmethod
     def from_dict(cls, value: Any) -> "RecoveryState":
@@ -314,22 +315,25 @@ class RecoveryState:
             {"recovery_id", "reason", "interrupted_action_id", "detected_at", "workspace_checkpoint_id"},
             "recovery",
         )
-        reason = string_value(obj["reason"], "recovery.reason")
-        if reason not in {
-            "INTERRUPTED_ACTION", "JOURNAL_CORRUPT", "TRUNCATED_LAST_RECORD",
-            "PAYLOAD_INTEGRITY_FAILURE", "WORKSPACE_DRIFT", "LEASE_AMBIGUOUS",
-        }:
-            raise SchemaError(f"unsupported recovery.reason: {reason!r}")
+        reason = enum_value(RecoveryReason, obj["reason"], "recovery.reason")
+        interrupted = sha256_value(
+            obj["interrupted_action_id"],
+            "recovery.interrupted_action_id",
+            optional=True,
+        )
+        checkpoint = uuid4_value(
+            obj["workspace_checkpoint_id"],
+            "recovery.workspace_checkpoint_id",
+            optional=True,
+        )
+        if reason is RecoveryReason.INTERRUPTED_ACTION and interrupted is None:
+            raise SchemaError("INTERRUPTED_ACTION recovery requires interrupted_action_id")
         return cls(
             recovery_id=uuid4_value(obj["recovery_id"], "recovery.recovery_id") or "",
             reason=reason,
-            interrupted_action_id=sha256_value(
-                obj["interrupted_action_id"], "recovery.interrupted_action_id"
-            ) or "",
+            interrupted_action_id=interrupted,
             detected_at=utc_value(obj["detected_at"], "recovery.detected_at"),
-            workspace_checkpoint_id=uuid4_value(
-                obj["workspace_checkpoint_id"], "recovery.workspace_checkpoint_id"
-            ) or "",
+            workspace_checkpoint_id=checkpoint,
         )
 
 
