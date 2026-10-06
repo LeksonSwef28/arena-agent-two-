@@ -1,0 +1,59 @@
+flowchart TB
+    U[Operator]
+
+    subgraph VS["VS Code — Control Plane"]
+      V1[Selected project/worktree]
+      V2[Git diff / terminal / tasks]
+      V3[status + session state]
+    end
+
+    subgraph WEB["Registered browser chats"]
+      G[MAIN_GPT\nChatGPT\nArchitect + executor-facing reasoning]
+      D[DEEPSEEK_REVIEW]
+      QW[QWEN_WEB_REVIEW]
+    end
+
+    LQ[LOCAL QWEN\nObserver / pattern analyst]
+
+    subgraph PROC["Stateful Agent-Agent Process"]
+      SS[Session State]
+      AJ[Action Journal\nAction ID + idempotency]
+      BR[Browser Role Binding]
+      EV[Event + Provenance]
+      SK[Pattern → Skill Promotion]
+    end
+
+    subgraph ARENA["Arena Project-Safe Core"]
+      IG[Central Ingress Gate]
+      CP[Capability Policy]
+      PB[Workspace Boundary]
+      STOP[Pause / Halt / STOP]
+    end
+
+    EX[Executor]
+    WT[Git Worktree]
+    VERIFY[Tests / preflight / diagnostics]
+
+    U --> VS
+    U --> BR
+    VS --> PROC
+
+    G <--> PROC
+    D <--> PROC
+    QW <--> PROC
+
+    PROC --> LQ
+    LQ --> PROC
+
+    PROC --> IG
+    IG --> CP
+    IG --> PB
+    IG --> STOP
+
+    CP --> EX
+    PB --> EX
+    EX --> WT
+    WT --> VERIFY
+    VERIFY --> PROC
+
+    SK -. AUTO only after operator promotion .-> PROC
