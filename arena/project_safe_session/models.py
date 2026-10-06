@@ -7,12 +7,14 @@ from .action_models import (
     JournalRecord,
 )
 from .checkpoint_models import CheckpointManifest, CheckpointResource
+from .event_models import SessionEventRecord
 from .schema_types import (
     ActionState,
     BindingStatus,
     BrowserRole,
     CheckpointKind,
     EffectStatus,
+    EventType,
     LifecyclePhase,
     LifecycleReason,
     LifecycleStatus,
@@ -40,6 +42,7 @@ __all__ = [
     "ActionInputRef", "ActionState", "BindingStatus", "BrowserBinding",
     "BrowserResourceTarget", "BrowserRole", "BrowserState", "CheckpointKind",
     "CheckpointManifest", "CheckpointResource", "EffectEvidence", "EffectStatus",
+    "EventType", "SessionEventRecord",
     "ExecutionState", "FileResourceBefore", "GoalState", "JournalRecord",
     "LifecyclePhase", "LifecycleReason", "LifecycleState", "LifecycleStatus",
     "LimitsState", "ProjectState", "RecoveryState", "RequestedMode", "ResourceType",
