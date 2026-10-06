@@ -37,8 +37,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  p0-windows:
-    name: P0 project-safe / Windows / Python 3.12
+  project-safe-windows:
+    name: P0 + P1 foundation / Windows / Python 3.12
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -65,7 +65,7 @@ jobs:
         run: |
           python -c "import os, platform, sys; print(platform.platform()); print(sys.version); assert os.name == 'nt'"
 
-      - name: Run targeted P0 project-safe tests
+      - name: Run targeted project-safe tests
         shell: pwsh
         env:
           ARENA_TEST_EXECUTION_GUARD: "1"
@@ -77,4 +77,4 @@ jobs:
             tests/test_project_safe_recursive_fs_boundary.py `
             tests/test_project_safe_git_boundary.py `
             tests/test_project_safe_secondary_servers.py `
-            tests/test_project_safe_launcher.py
+            tests/test_project_safe_launcher.py `\n            tests/test_project_safe_session_foundation.py
