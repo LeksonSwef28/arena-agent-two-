@@ -285,3 +285,31 @@ def test_goal_normalization_and_fingerprint_are_stable():
         project,
         " Fix\npreflight ",
     )
+
+
+def test_resume_paused_flow_with_workspace_drift_enters_waiting(tmp_path: Path):
+    repo, lease, coordinator = _coordinator(tmp_path)
+    try:
+        created = coordinator.create_session(
+            goal="Flow",
+            requested_mode="write",
+            at=NOW1,
+        )
+        coordinator.activate_session(created.session_id, at=NOW2)
+        started = coordinator.start_flow(created.session_id, at=NOW3)
+        assert started.active_flow is not None
+        coordinator.pause_session(created.session_id, at=NOW4)
+
+        (repo / "external.txt").write_text("external change\n", encoding="utf-8")
+
+        resumed = coordinator.activate_session(created.session_id, at=NOW4)
+        assert resumed.lifecycle.status.value == "WAITING"
+        assert resumed.lifecycle.reason is not None
+        assert resumed.lifecycle.reason.value == "WORKSPACE_DRIFT"
+        assert resumed.active_flow is not None
+
+        registry = ProjectRegistryStore(lease).read()
+        assert registry is not None
+        assert registry.active_session_id == created.session_id
+    finally:
+        lease.release()
