@@ -86,8 +86,8 @@ def _state() -> dict:
                 }
             },
         },
+        "active_flow": None,
         "execution": {
-            "active_flow_id": None,
             "pending_action_id": None,
             "last_terminal_action_id": None,
             "last_action_seq": 0,
@@ -373,3 +373,67 @@ def test_checkpoint_backup_ref_is_content_addressed():
 
     with pytest.raises(SchemaError, match="content-addressed"):
         CheckpointManifest.from_dict(raw)
+
+
+def test_active_flow_tracks_goal_revision_and_expected_workspace():
+    raw = _state()
+    flow_id = _uuid()
+    raw["active_flow"] = {
+        "flow_id": flow_id,
+        "goal_revision": 1,
+        "workspace_digest_baseline": SHA256_A,
+        "workspace_digest_expected_current": SHA256_B,
+        "created_at": NOW,
+    }
+
+    parsed = StateSnapshot.from_dict(raw)
+    assert parsed.active_flow is not None
+    assert parsed.active_flow.flow_id == flow_id
+    assert parsed.active_flow.workspace_digest_baseline == SHA256_A
+    assert parsed.active_flow.workspace_digest_expected_current == SHA256_B
+
+
+def test_active_flow_goal_revision_must_match_current_goal():
+    raw = _state()
+    raw["active_flow"] = {
+        "flow_id": _uuid(),
+        "goal_revision": 2,
+        "workspace_digest_baseline": SHA256_A,
+        "workspace_digest_expected_current": SHA256_A,
+        "created_at": NOW,
+    }
+
+    with pytest.raises(SchemaError, match="goal_revision must match"):
+        StateSnapshot.from_dict(raw)
+
+
+def test_pending_action_requires_active_flow():
+    raw = _state()
+    raw["execution"]["pending_action_id"] = SHA256_A
+
+    with pytest.raises(SchemaError, match="pending action requires active_flow"):
+        StateSnapshot.from_dict(raw)
+
+
+def test_executing_phase_requires_active_flow():
+    raw = _state()
+    raw["lifecycle"]["phase"] = "EXECUTING"
+
+    with pytest.raises(SchemaError, match="EXECUTING phase requires active_flow"):
+        StateSnapshot.from_dict(raw)
+
+
+def test_terminal_session_cannot_retain_active_flow():
+    raw = _state()
+    raw["lifecycle"]["status"] = "COMPLETED"
+    raw["lifecycle"]["phase"] = "IDLE"
+    raw["active_flow"] = {
+        "flow_id": _uuid(),
+        "goal_revision": 1,
+        "workspace_digest_baseline": SHA256_A,
+        "workspace_digest_expected_current": SHA256_A,
+        "created_at": NOW,
+    }
+
+    with pytest.raises(SchemaError, match="terminal session"):
+        StateSnapshot.from_dict(raw)
