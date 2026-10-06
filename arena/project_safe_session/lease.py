@@ -16,6 +16,10 @@ class ProjectLeaseError(RuntimeError):
 class ProjectLeaseBusyError(ProjectLeaseError):
     """Another live process currently owns the project lease."""
 
+    def __init__(self, message: str, *, native_error: int | None = None) -> None:
+        super().__init__(message)
+        self.native_error = native_error
+
 
 def _win32_api_path(path: Path) -> str:
     """Return an internal extended-length path for Win32 APIs.
@@ -66,7 +70,10 @@ def _acquire_windows(path: Path) -> int:
     if handle == invalid_handle:
         error = ctypes.get_last_error()
         if error in {32, 33}:  # ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
-            raise ProjectLeaseBusyError("project lease is already held by another live process")
+            raise ProjectLeaseBusyError(
+                "project lease is already held by another live process",
+                native_error=error,
+            )
         raise OSError(error, f"CreateFileW failed for project lease: {path}")
     return int(handle)
 
@@ -94,7 +101,8 @@ def _acquire_posix(path: Path) -> int:
         os.close(fd)
         if exc.errno in {errno.EACCES, errno.EAGAIN}:
             raise ProjectLeaseBusyError(
-                "project lease is already held by another live process"
+                "project lease is already held by another live process",
+                native_error=exc.errno,
             ) from exc
         raise
     return fd
