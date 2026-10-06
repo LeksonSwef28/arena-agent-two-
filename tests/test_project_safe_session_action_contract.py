@@ -9,6 +9,7 @@ import pytest
 
 from arena.project_safe_session import (
     JournalCorruptionError,
+    PayloadIntegrityError,
     ProjectLease,
     ProjectSafeSessionStore,
     StorageError,
@@ -22,6 +23,8 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
 NOW = "2026-10-07T02:30:00Z"
+ACTION_ARGS = {"content": "x", "path": "src/foo.py"}
+ACTION_ARGS_HASH = compute_args_hash(ACTION_ARGS)
 
 
 def _uuid() -> str:
@@ -37,7 +40,12 @@ def _store(tmp_path: Path):
     return lease, store
 
 
-def _identity(session_id: str, *, args_hash: str = SHA_A, target: str = SHA_C) -> str:
+def _identity(
+    session_id: str,
+    *,
+    args_hash: str = ACTION_ARGS_HASH,
+    target: str = SHA_C,
+) -> str:
     return compute_action_id(
         session_id=session_id,
         proposal_id="proposal-1",
@@ -80,7 +88,7 @@ def _draft(
         "effect_target_fingerprint": SHA_C,
         "risk": "dangerous",
         "input": {
-            "args_hash": SHA_A,
+            "args_hash": ACTION_ARGS_HASH,
             "payload_ref": payload_ref,
             "payload_sha256": payload_sha,
             "summary": summary or {"path": "src/foo.py", "op": "edit"},
@@ -92,11 +100,11 @@ def _draft(
 
 def _prepared(store: ProjectSafeSessionStore):
     action_id = _identity(store.session_id)
-    payload_ref, payload_sha = store.write_action_payload(
+    payload_ref, args_hash, payload_sha = store.write_action_input(
         action_id,
-        "input.json",
-        b'{"path":"src/foo.py","content":"x"}',
+        ACTION_ARGS,
     )
+    assert args_hash == ACTION_ARGS_HASH
     flow_id = _uuid()
     first = store.append_action(
         _draft(
@@ -182,9 +190,10 @@ def test_storage_rejects_caller_supplied_fake_action_id(tmp_path: Path):
     lease, store = _store(tmp_path)
     try:
         real = _identity(store.session_id)
-        payload_ref, payload_sha = store.write_action_payload(
-            real, "input.json", b'{"path":"src/foo.py"}'
+        payload_ref, args_hash, payload_sha = store.write_action_input(
+            real, ACTION_ARGS
         )
+        assert args_hash == ACTION_ARGS_HASH
         draft = _draft(
             store,
             real,
@@ -433,9 +442,10 @@ def test_first_record_for_action_must_be_prepared(tmp_path: Path):
     lease, store = _store(tmp_path)
     try:
         action_id = _identity(store.session_id)
-        payload_ref, payload_sha = store.write_action_payload(
-            action_id, "input.json", b'{"path":"src/foo.py"}'
+        payload_ref, args_hash, payload_sha = store.write_action_input(
+            action_id, ACTION_ARGS
         )
+        assert args_hash == ACTION_ARGS_HASH
         with pytest.raises(StorageError, match="first record.*PREPARED"):
             store.append_action(
                 _draft(
@@ -448,5 +458,31 @@ def test_first_record_for_action_must_be_prepared(tmp_path: Path):
                     effect="NONE",
                 )
             )
+    finally:
+        lease.release()
+
+
+def test_prepared_rejects_payload_whose_semantic_args_do_not_match_action_id(tmp_path: Path):
+    lease, store = _store(tmp_path)
+    try:
+        action_id = _identity(store.session_id)
+        wrong_args = {"content": "DIFFERENT", "path": "src/foo.py"}
+        payload_ref, payload_sha = store.write_action_payload(
+            action_id,
+            "input.json",
+            json.dumps(wrong_args, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        )
+        draft = _draft(
+            store,
+            action_id,
+            payload_ref,
+            payload_sha,
+            _uuid(),
+            state="PREPARED",
+            effect="NONE",
+        )
+
+        with pytest.raises(PayloadIntegrityError, match="semantic args_hash mismatch"):
+            store.append_action(draft)
     finally:
         lease.release()
