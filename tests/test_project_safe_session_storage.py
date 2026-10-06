@@ -80,8 +80,8 @@ def _state(project: Path, session_id: str, *, revision: int) -> StateSnapshot:
             "required_roles": [],
             "bindings": {},
         },
+        "active_flow": None,
         "execution": {
-            "active_flow_id": None,
             "pending_action_id": None,
             "last_terminal_action_id": None,
             "last_action_seq": 0,
