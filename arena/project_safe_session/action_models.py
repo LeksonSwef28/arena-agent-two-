@@ -19,6 +19,7 @@ from .schema_utils import (
     integer_value,
     object_value,
     optional_string,
+    relative_path_value,
     sha256_value,
     string_value,
     to_data,
@@ -52,10 +53,9 @@ class FileResourceBefore:
             raise SchemaError("existing file resource requires content_sha256")
         if not exists and content is not None:
             raise SchemaError("non-existent file resource must have null content_sha256")
-        path = string_value(obj["canonical_relative_path"], "resource_before.canonical_relative_path")
-        normalized = path.replace("\\", "/")
-        if normalized.startswith("/") or ".." in normalized.split("/"):
-            raise SchemaError("resource_before.canonical_relative_path must be a safe relative path")
+        normalized = relative_path_value(
+            obj["canonical_relative_path"], "resource_before.canonical_relative_path"
+        )
         return cls(
             project_fingerprint=sha256_value(
                 obj["project_fingerprint"], "resource_before.project_fingerprint"
@@ -131,7 +131,7 @@ class ActionInputRef:
         exact_keys(obj, {"args_hash", "payload_ref", "payload_sha256", "summary"}, "input")
         return cls(
             args_hash=sha256_value(obj["args_hash"], "input.args_hash") or "",
-            payload_ref=string_value(obj["payload_ref"], "input.payload_ref"),
+            payload_ref=relative_path_value(obj["payload_ref"], "input.payload_ref"),
             payload_sha256=sha256_value(obj["payload_sha256"], "input.payload_sha256") or "",
             summary=object_value(obj["summary"], "input.summary"),
         )
@@ -181,6 +181,13 @@ class JournalRecord:
             raise SchemaError("unsupported journal_record.schema_version")
         state = enum_value(ActionState, obj["state"], "journal_record.state")
         effect = EffectEvidence.from_dict(obj["effect"])
+        action_id = sha256_value(obj["action_id"], "journal_record.action_id") or ""
+        input_ref = ActionInputRef.from_dict(obj["input"])
+        expected_payload_ref = f"actions/{action_id}/input.json"
+        if input_ref.payload_ref != expected_payload_ref:
+            raise SchemaError(
+                f"input.payload_ref must be {expected_payload_ref!r} for this action_id"
+            )
         reason = optional_string(obj["reason"], "journal_record.reason")
         if state is ActionState.PREPARED and effect.status is not EffectStatus.NONE:
             raise SchemaError("PREPARED requires effect=NONE")
@@ -193,12 +200,21 @@ class JournalRecord:
                 raise SchemaError("ABANDONED requires a supported abandonment reason")
         elif reason is not None and state not in {ActionState.FAILED, ActionState.INTERRUPTED}:
             raise SchemaError("journal_record.reason is not allowed for this action state")
+        previous_hash = sha256_value(
+            obj["previous_record_hash"], "journal_record.previous_record_hash", optional=True
+        )
+        if integer_value(obj["journal_seq"], "journal_record.journal_seq", minimum=1) == 1:
+            if previous_hash is not None:
+                raise SchemaError("journal_seq=1 requires previous_record_hash=null")
+        elif previous_hash is None:
+            raise SchemaError("journal_seq>1 requires previous_record_hash")
+
         return cls(
             schema_version=SCHEMA_VERSION,
             journal_seq=integer_value(obj["journal_seq"], "journal_record.journal_seq", minimum=1),
             action_seq=integer_value(obj["action_seq"], "journal_record.action_seq", minimum=1),
             transition_seq=integer_value(obj["transition_seq"], "journal_record.transition_seq", minimum=1),
-            action_id=sha256_value(obj["action_id"], "journal_record.action_id") or "",
+            action_id=action_id,
             session_id=uuid4_value(obj["session_id"], "journal_record.session_id") or "",
             flow_id=uuid4_value(obj["flow_id"], "journal_record.flow_id", optional=True),
             attempt_seq=integer_value(obj["attempt_seq"], "journal_record.attempt_seq", minimum=1),
@@ -206,9 +222,7 @@ class JournalRecord:
             state=state,
             effect=effect,
             recorded_at=utc_value(obj["recorded_at"], "journal_record.recorded_at"),
-            previous_record_hash=sha256_value(
-                obj["previous_record_hash"], "journal_record.previous_record_hash", optional=True
-            ),
+            previous_record_hash=previous_hash,
             record_hash=sha256_value(obj["record_hash"], "journal_record.record_hash") or "",
             proposal_id=string_value(obj["proposal_id"], "journal_record.proposal_id"),
             proposal_digest=sha256_value(obj["proposal_digest"], "journal_record.proposal_digest") or "",
@@ -217,7 +231,7 @@ class JournalRecord:
                 obj["effect_target_fingerprint"], "journal_record.effect_target_fingerprint"
             ) or "",
             risk=enum_value(RiskClass, obj["risk"], "journal_record.risk"),
-            input=ActionInputRef.from_dict(obj["input"]),
+            input=input_ref,
             workspace_digest_context=sha256_value(
                 obj["workspace_digest_context"], "journal_record.workspace_digest_context"
             ) or "",
