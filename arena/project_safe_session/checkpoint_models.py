@@ -65,6 +65,9 @@ class CheckpointResource:
             backup_sha256=backup_sha,
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        return to_data(self)
+
 
 @dataclass(frozen=True)
 class CheckpointManifest:
