@@ -60,6 +60,7 @@ __all__ += [
 ]
 
 from .storage import (
+    CheckpointIntegrityError,
     JournalCorruptionError,
     LeaseRequiredError,
     PayloadIntegrityError,
@@ -70,6 +71,7 @@ from .storage import (
 )
 
 __all__ += [
+    "CheckpointIntegrityError",
     "JournalCorruptionError",
     "LeaseRequiredError",
     "PayloadIntegrityError",
@@ -95,6 +97,7 @@ from .workspace import (
     capture_file_resource_before,
     compute_workspace_digest_v1,
     file_effect_target_fingerprint,
+    read_file_resource_backup_v1,
     validate_file_resource_cas,
 )
 
@@ -113,6 +116,7 @@ __all__ += [
     "capture_file_resource_before",
     "compute_workspace_digest_v1",
     "file_effect_target_fingerprint",
+    "read_file_resource_backup_v1",
     "validate_file_resource_cas",
 ]
 
@@ -132,4 +136,22 @@ __all__ += [
     "compute_attempt_id",
     "validate_action_history",
     "validate_action_record",
+]
+
+from .checkpoint_contract import (
+    CheckpointContractError,
+    build_checkpoint_manifest,
+    checkpoint_manifest_sha256,
+    checkpoint_resource_from_file_before,
+    validate_checkpoint_manifest_digest,
+)
+from .checkpointing import create_file_resource_before_checkpoint
+
+__all__ += [
+    "CheckpointContractError",
+    "build_checkpoint_manifest",
+    "checkpoint_manifest_sha256",
+    "checkpoint_resource_from_file_before",
+    "create_file_resource_before_checkpoint",
+    "validate_checkpoint_manifest_digest",
 ]
