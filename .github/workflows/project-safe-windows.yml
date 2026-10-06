@@ -83,5 +83,6 @@ jobs:
             tests/test_project_safe_session_storage.py `
             tests/test_project_safe_session_action_contract.py `
             tests/test_project_safe_session_checkpoints.py `
+            tests/test_project_safe_session_registry.py `
             tests/test_project_safe_session_workspace.py `
             tests/test_architecture_boundaries.py
