@@ -43,6 +43,24 @@ def project_code_enabled() -> bool:
     return _flag("ARENA_PROJECT_SAFE_CODE")
 
 
+def project_safe_secondary_server_block_reason(server_name: str) -> str | None:
+    """Return a fail-closed reason for secondary listeners in project-safe mode."""
+    if not project_safe_enabled():
+        return None
+    name = str(server_name or "secondary server").strip() or "secondary server"
+    return (
+        f"{name} is disabled in ARENA_PROJECT_SAFE mode; "
+        "use the unified loopback bridge and canonical project-safe ingress"
+    )
+
+
+def require_project_safe_secondary_server_disabled(server_name: str) -> None:
+    """Raise before any secondary server binds/spawns while project-safe is active."""
+    reason = project_safe_secondary_server_block_reason(server_name)
+    if reason:
+        raise RuntimeError(reason)
+
+
 def project_safe_block_reason(tool: str) -> str | None:
     """Return a refusal reason for a tool, or None when project-safe allows it."""
     if not project_safe_enabled():
@@ -72,5 +90,7 @@ def filter_project_safe_tools(tools: Iterable[dict[str, Any]]) -> list[dict[str,
 __all__ = [
     "READ_TOOLS", "WRITE_TOOLS", "FENCED_CODE_TOOLS",
     "project_safe_enabled", "project_writes_enabled", "project_code_enabled",
+    "project_safe_secondary_server_block_reason",
+    "require_project_safe_secondary_server_disabled",
     "project_safe_block_reason", "filter_project_safe_tools",
 ]
