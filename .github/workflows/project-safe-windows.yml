@@ -4,9 +4,29 @@ on:
   push:
     branches:
       - hardening/project-safe-v0
+    paths:
+      - "arena/**"
+      - "bin/web_gateway.py"
+      - "scripts/start_serena_mcp.py"
+      - "tests/test_project_safe*.py"
+      - "tests/test_lifecycle.py"
+      - "start.bat"
+      - "requirements-ci.lock"
+      - "pyproject.toml"
+      - ".github/workflows/project-safe-windows.yml"
   pull_request:
     branches:
       - master
+    paths:
+      - "arena/**"
+      - "bin/web_gateway.py"
+      - "scripts/start_serena_mcp.py"
+      - "tests/test_project_safe*.py"
+      - "tests/test_lifecycle.py"
+      - "start.bat"
+      - "requirements-ci.lock"
+      - "pyproject.toml"
+      - ".github/workflows/project-safe-windows.yml"
   workflow_dispatch:
 
 permissions:
