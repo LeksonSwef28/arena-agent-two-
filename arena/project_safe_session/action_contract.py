@@ -1,6 +1,7 @@
 """Deterministic action identity and transition contract for project-safe v1."""
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, Mapping
 
@@ -32,9 +33,32 @@ _ALLOWED_SAME_ATTEMPT: dict[ActionState, frozenset[ActionState]] = {
 }
 
 
-def compute_args_hash(canonical_args: Any) -> str:
-    """Hash already schema-normalized semantic action arguments."""
-    return canonical_sha256(canonical_args)
+def _validate_canonical_arg_value(value: Any, label: str = "args") -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ActionContractError(f"{label} contains a non-finite float")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_canonical_arg_value(item, f"{label}[{index}]")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ActionContractError(f"{label} object keys must be strings")
+            _validate_canonical_arg_value(item, f"{label}.{key}")
+        return
+    raise ActionContractError(f"{label} contains unsupported JSON value {type(value).__name__}")
+
+
+def compute_args_hash(canonical_args: Mapping[str, Any]) -> str:
+    """Hash schema-normalized semantic action arguments."""
+    if not isinstance(canonical_args, Mapping):
+        raise ActionContractError("action args must be a JSON object")
+    _validate_canonical_arg_value(canonical_args)
+    return canonical_sha256(dict(canonical_args))
 
 
 def compute_action_id(
