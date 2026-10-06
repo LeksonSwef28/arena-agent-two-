@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.git_safe import run_project_safe_git
 from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 from arena.project_safe import project_safe_enabled
@@ -28,34 +29,21 @@ def _validate_repo_path(path_str: str, ctx) -> tuple[Path | None, dict[str, Any]
 
 
 def _run_git(repo_path: Path, args: list[str], timeout: int = 15) -> tuple[int, str, str]:
-    """Run Git; project-safe mode strips ambient Git execution/config hooks."""
+    """Run Git; project-safe mode reuses the shared hardened Git runner."""
+    if project_safe_enabled():
+        code, stdout, stderr = run_project_safe_git(repo_path, args, timeout=timeout)
+        return (
+            code,
+            stdout.decode("utf-8", "replace"),
+            stderr.decode("utf-8", "replace"),
+        )
     try:
-        cmd = ["git"]
-        env = None
-        if project_safe_enabled():
-            cmd += [
-                "--no-pager",
-                "-c", f"core.hooksPath={os.devnull}",
-                "-c", "core.fsmonitor=false",
-            ]
-            env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.upper().startswith("GIT_")
-            }
-            env["GIT_TERMINAL_PROMPT"] = "0"
-            env["GIT_OPTIONAL_LOCKS"] = "0"
-            env["GIT_CONFIG_NOSYSTEM"] = "1"
-            env["GIT_CONFIG_GLOBAL"] = os.devnull
-        cmd += args
-
         result = subprocess.run(
-            cmd,
+            ["git", *args],
             cwd=str(repo_path),
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=env,
         )
         return result.returncode, result.stdout, result.stderr
     except subprocess.TimeoutExpired:
