@@ -10,11 +10,11 @@ from .checkpoint_contract import (
     build_checkpoint_manifest,
     checkpoint_resource_from_file_before,
 )
+from .action_models import FileResourceBefore
 from .checkpoint_models import CheckpointManifest
 from .paths import project_fingerprint
 from .storage import ProjectSafeSessionStore
 from .workspace import (
-    FileResourceBefore,
     capture_file_resource_before,
     read_file_resource_backup_v1,
 )
