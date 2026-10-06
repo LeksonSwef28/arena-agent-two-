@@ -44,6 +44,9 @@ def _run_git(repo_path: Path, args: list[str], timeout: int = 15) -> tuple[int, 
                 if not key.upper().startswith("GIT_")
             }
             env["GIT_TERMINAL_PROMPT"] = "0"
+            env["GIT_OPTIONAL_LOCKS"] = "0"
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            env["GIT_CONFIG_GLOBAL"] = os.devnull
         cmd += args
 
         result = subprocess.run(
@@ -76,7 +79,7 @@ def _project_safe_commit_sha(repo_path: Path, revision: str) -> tuple[str | None
     if code != 0:
         return None, f"invalid git revision: {stderr.strip() or value}"
     sha = stdout.strip().splitlines()[0] if stdout.strip() else ""
-    if not sha or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+    if len(sha) not in {40, 64} or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
         return None, "git revision did not resolve to a commit SHA"
     return sha, None
 
