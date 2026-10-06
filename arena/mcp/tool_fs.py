@@ -12,12 +12,13 @@ from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
+_MCP_BLOCKED_FILES_CASEFOLD = frozenset(name.casefold() for name in _MCP_BLOCKED_FILES)
 
 
 def _validate_workspace_path(path: str, ctx, *, for_write: bool = False) -> tuple[Path | None, dict[str, Any] | None]:
     if not path:
         return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-    if Path(path).name in _MCP_BLOCKED_FILES:
+    if Path(path).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
         return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: accessing {Path(path).name} is not allowed"}]}
     resolved, reason = resolve_workspace_path(path, ctx, for_write=for_write)
     if reason:
@@ -67,9 +68,9 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
     for_write = name in {"fs.write", "fs.write_base64", "fs.edit", "fs.create"}
     path, err = _validate_workspace_path(p, ctx, for_write=for_write)
     if err:
-        if name == "fs.write" and p and Path(p).name in _MCP_BLOCKED_FILES:
+        if name == "fs.write" and p and Path(p).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}
-        if name == "fs.edit" and p and Path(p).name in _MCP_BLOCKED_FILES:
+        if name == "fs.edit" and p and Path(p).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: editing {Path(p).name} is not allowed"}]}
         return err
     assert path is not None  # the guard above already proved this
