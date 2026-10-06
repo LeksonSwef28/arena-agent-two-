@@ -76,6 +76,20 @@ class EffectStatus(_StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class EventType(_StrEnum):
+    SESSION_CREATED = "SESSION_CREATED"
+    GOAL_REFINED = "GOAL_REFINED"
+    STATUS_CHANGED = "STATUS_CHANGED"
+    PHASE_CHANGED = "PHASE_CHANGED"
+    BINDING_CREATED = "BINDING_CREATED"
+    BINDING_STALE = "BINDING_STALE"
+    FLOW_CREATED = "FLOW_CREATED"
+    FLOW_CLOSED = "FLOW_CLOSED"
+    RECOVERY_DETECTED = "RECOVERY_DETECTED"
+    RECOVERY_RESOLVED = "RECOVERY_RESOLVED"
+    LIMIT_REACHED = "LIMIT_REACHED"
+
+
 class CheckpointKind(_StrEnum):
     SESSION_BASELINE = "SESSION_BASELINE"
     RESOURCE_BEFORE = "RESOURCE_BEFORE"
@@ -96,6 +110,6 @@ class RiskClass(_StrEnum):
 
 __all__ = [
     "ActionState", "BindingStatus", "BrowserRole", "CheckpointKind",
-    "EffectStatus", "LifecyclePhase", "LifecycleReason", "LifecycleStatus",
+    "EffectStatus", "EventType", "LifecyclePhase", "LifecycleReason", "LifecycleStatus",
     "RequestedMode", "ResourceType", "RiskClass", "SCHEMA_VERSION",
 ]
