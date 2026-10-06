@@ -24,6 +24,7 @@ __all__ = [
 
 from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads
 from .models import (
+    ActiveFlowState,
     ActionState,
     BrowserRole,
     CheckpointKind,
@@ -41,6 +42,7 @@ from .models import (
 )
 
 __all__ += [
+    "ActiveFlowState",
     "ActionState",
     "BrowserRole",
     "CheckpointKind",
@@ -154,4 +156,20 @@ __all__ += [
     "checkpoint_resource_from_file_before",
     "create_file_resource_before_checkpoint",
     "validate_checkpoint_manifest_digest",
+]
+
+from .registry import (
+    ActiveSessionConflictError,
+    ProjectRegistry,
+    ProjectRegistryStore,
+    RegistryError,
+    RegistryRevisionError,
+)
+
+__all__ += [
+    "ActiveSessionConflictError",
+    "ProjectRegistry",
+    "ProjectRegistryStore",
+    "RegistryError",
+    "RegistryRevisionError",
 ]
