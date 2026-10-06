@@ -121,6 +121,75 @@ def workspace_root(ctx: Any) -> Path:
     return root
 
 
+def resolve_project_safe_path(
+    raw_path: str,
+    root: str | os.PathLike[str] | Path,
+    *,
+    for_write: bool = False,
+) -> tuple[Path | None, str | None]:
+    """Resolve one path against an explicit project-safe root.
+
+    This is the context-free form used by durable-session admission/CAS code.
+    It deliberately reuses the same Windows syntax, reparse, .git and hardlink
+    rules as MCP project-safe filesystem access.
+    """
+    if not raw_path:
+        return None, "missing path argument"
+    if "\x00" in raw_path:
+        return None, "path is not usable (embedded NUL)"
+
+    try:
+        canonical_root = Path(root).expanduser()
+        if os.name == "nt":
+            reason = windows_path_rejection_reason(str(canonical_root))
+            if reason:
+                return None, f"invalid project-safe workspace root: {reason}"
+        if _is_reparse_point(canonical_root):
+            return None, (
+                "project-safe workspace root must not itself be a symlink, "
+                "junction, or reparse point"
+            )
+        canonical_root = canonical_root.resolve(strict=True)
+        if not canonical_root.is_dir():
+            return None, "project-safe workspace root must exist and be a directory"
+    except (ValueError, OSError, RuntimeError) as exc:
+        return None, f"project-safe workspace root is not usable ({type(exc).__name__})"
+
+    if os.name == "nt":
+        reason = windows_path_rejection_reason(raw_path)
+        if reason:
+            return None, reason
+
+    try:
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = canonical_root / candidate
+
+        lexical = Path(os.path.abspath(os.fspath(candidate)))
+        lexical_rel = lexical.relative_to(canonical_root)
+        if any(part.casefold() in _BLOCKED_COMPONENTS for part in lexical_rel.parts):
+            return None, "direct access to .git internals is not allowed; use git.* tools"
+
+        if for_write:
+            reparse = _first_existing_reparse(canonical_root, lexical)
+            if reparse is not None:
+                return None, (
+                    "project-safe writes through symlink, junction, or reparse points "
+                    f"are not allowed: {reparse}"
+                )
+
+        resolved = candidate.resolve(strict=False)
+        rel = resolved.relative_to(canonical_root)
+    except (ValueError, OSError, RuntimeError) as exc:
+        return None, f"path outside configured workspace root ({type(exc).__name__})"
+
+    if any(part.casefold() in _BLOCKED_COMPONENTS for part in rel.parts):
+        return None, "direct access to .git internals is not allowed; use git.* tools"
+    if _has_multiple_hardlinks(resolved):
+        return None, "project-safe access to multiply-linked files is not allowed"
+    return resolved, None
+
+
 def resolve_workspace_path(
     raw_path: str,
     ctx: Any,
@@ -138,29 +207,19 @@ def resolve_workspace_path(
     except (ValueError, OSError, RuntimeError) as exc:
         return None, str(exc)
 
-    if project_safe_enabled() and os.name == "nt":
-        reason = windows_path_rejection_reason(raw_path)
+    if project_safe_enabled():
+        resolved, reason = resolve_project_safe_path(raw_path, root, for_write=for_write)
         if reason:
             return None, reason
+        assert resolved is not None
+        if not ctx.under_root(resolved, root):
+            return None, "path outside configured workspace root"
+        return resolved, None
 
     try:
         candidate = Path(raw_path).expanduser()
         if not candidate.is_absolute():
             candidate = root / candidate
-
-        lexical = Path(os.path.abspath(os.fspath(candidate)))
-        lexical_rel = lexical.relative_to(root)
-        if any(part.casefold() in _BLOCKED_COMPONENTS for part in lexical_rel.parts):
-            return None, "direct access to .git internals is not allowed; use git.* tools"
-
-        if project_safe_enabled() and for_write:
-            reparse = _first_existing_reparse(root, lexical)
-            if reparse is not None:
-                return None, (
-                    "project-safe writes through symlink, junction, or reparse points "
-                    f"are not allowed: {reparse}"
-                )
-
         resolved = candidate.resolve(strict=False)
         rel = resolved.relative_to(root)
     except (ValueError, OSError, RuntimeError) as exc:
@@ -168,18 +227,14 @@ def resolve_workspace_path(
 
     if any(part.casefold() in _BLOCKED_COMPONENTS for part in rel.parts):
         return None, "direct access to .git internals is not allowed; use git.* tools"
-
     if not ctx.under_root(resolved, root):
         return None, "path outside configured workspace root"
-
-    if project_safe_enabled() and _has_multiple_hardlinks(resolved):
-        return None, "project-safe access to multiply-linked files is not allowed"
-
     return resolved, None
 
 
 __all__ = [
     "workspace_root",
+    "resolve_project_safe_path",
     "resolve_workspace_path",
     "windows_path_rejection_reason",
 ]
