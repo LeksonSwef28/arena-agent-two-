@@ -62,6 +62,7 @@ flowchart TB
       PB[Canonical workspace boundary]
       TP[Tool allowlist]
       KS[Pause / Halt / STOP]
+      BG[Project-safe lifecycle\nlatent executors OFF]
     end
 
     EX[Executor]
@@ -79,6 +80,7 @@ flowchart TB
     HG --> PB
     HG --> TP
     HG --> KS
+    HG --> BG
     PB --> EX
     TP --> EX
     EX --> WT
@@ -223,6 +225,11 @@ Exceptional / operator states:
   PAUSED
   INTERRUPTED
   STOPPED
+
+Recovery rule:
+  INTERRUPTED
+    -> VERIFYING   when the previous action can be reconstructed and verified
+    -> NEED_USER   when safe recovery cannot be proven
 ```
 
 Rules:
@@ -278,7 +285,10 @@ Examples:
 
 Answers: *what did the system do?*
 
-Each action gets a stable `action_id`.
+Each action gets a stable `action_id`. The `action_id` is the idempotency
+key shared across session state, the action journal, provenance and
+verification records. Repeating an already completed `action_id` must return
+the recorded result instead of executing again.
 
 Required lifecycle example:
 
@@ -296,7 +306,8 @@ of executing it a second time.
 
 Answers: *why did the system do it and where did the idea come from?*
 
-A mutating action is incomplete unless it can link to its origin:
+A mutating action is incomplete unless it can link to its origin. An Action
+Journal mutation record without a provenance chain is considered incomplete:
 
 ```text
 proposal_id
@@ -392,8 +403,15 @@ No parallel feature expansion.
 
 ```text
 P0  Arena project-safe core, fail-closed
+    ├─ P0-A HTTP fail-closed allowlist
+    ├─ P0-B project-safe lifecycle / latent executors OFF
+    ├─ P0-C Windows workspace-boundary hardening
+    └─ P0-D standalone / secondary server policy
+          ↓
+       P0 PASS GATE
+          ↓
 P1  Session state + action journal + idempotency
-P2  One MAIN_GPT browser role binding
+P2  One MAIN_GPT browser role binding + interaction budget
 P3  Structured event + provenance collector
 P4  Local Qwen in OBSERVE mode
 P5  Second browser reviewer
@@ -401,7 +419,9 @@ P6  Pattern -> skill candidates / promotion
 P7  VS Code UI refinement
 ```
 
-No new orchestrator implementation should begin before P0 is proven.
+**P0 PASS is a hard prerequisite.** No new orchestrator, local-Qwen observer,
+browser-review automation or skill system should be implemented before P0 is
+proven by tests on the intended Windows environment.
 
 ## 12. P0 definition of done
 
@@ -420,7 +440,9 @@ P0 is PASS only when:
 
 ## 13. Current implementation status
 
-Implemented on `hardening/project-safe-v0` before this checkpoint:
+Current truth as of 2026-10-06:
+
+### Implemented / recorded
 
 - explicit project root launcher;
 - cautious profile instead of owner-shell;
@@ -433,14 +455,59 @@ Implemented on `hardening/project-safe-v0` before this checkpoint:
 - browser-extension scope reduced to ChatGPT / DeepSeek / Qwen + localhost;
 - browser safe-auto-run forced off in project-safe policy;
 - targeted project-safe tests added;
-- draft PR #1 opened.
+- architecture checkpoint recorded;
+- ingress / entry-point audit completed;
+- Windows boundary-test matrix defined;
+- browser interaction / pacing policy recorded;
+- draft PR #1 remains the review container.
 
-Not yet accepted as complete:
+### Proven audit findings
 
-- full ingress/entry-point audit;
-- central REST/secondary-ingress closure;
-- Windows path boundary matrix execution;
-- proof against junction/reparse/TOCTOU escape;
-- CI/runtime validation on the target Windows machine.
+P0 is currently **FAIL**, not because the design is unclear, but because the
+current code still has executable surfaces outside the canonical project-safe
+boundary. Proven examples include:
 
-Those open items are the next P0 work and must be resolved before P1.
+- direct v1/v2 exec paths;
+- gateway `/run`;
+- task submission + background task runner;
+- mission/background scheduling;
+- standalone MCP with a separate HOME-based jail;
+- tunnel/post-update/background startup hooks;
+- large direct REST/CDP/desktop/mobile/admin surfaces that are outside v0.
+
+See:
+
+- `docs/PROJECT_SAFE_P0_AUDIT_FINDINGS_2026-10-06.md`
+- `docs/PROJECT_SAFE_P0_AUDIT_PLAN.md`
+
+### Remaining P0 work
+
+- **P0-A:** finish/apply app-level HTTP fail-closed allowlist and regression
+  tests;
+- **P0-B:** disable latent/background executors in project-safe lifecycle;
+- **P0-C:** harden Windows path handling and execute Windows-only boundary
+  tests, including case-insensitive `.git`, UNC/drive-relative/device paths,
+  reparse/junction escape, nonexistent targets and TOCTOU strategy;
+- **P0-D:** prevent standalone/secondary execution servers from bypassing the
+  canonical policy.
+
+No P1 implementation begins until those are evidenced as PASS.
+
+## 14. Explicit non-goals / rejected shortcuts
+
+The following ideas are intentionally rejected for the project-safe design:
+
+- **No LLM as security judge.** Local Qwen may observe or propose; deterministic
+  code grants permission.
+- **No global clipboard/keylogger.** Only semantic events from registered
+  project browser bindings are eligible for project history.
+- **No external proxy as the only security boundary.** The Arena core itself
+  must fail closed.
+- **No stealth / human-biometrics simulation.** Randomized mouse paths, fake
+  typing mistakes, jitter, fingerprint spoofing and similar anti-detection
+  techniques are outside the architecture.
+- **No retry storm.** Slow models and provider limits produce WAIT/PAUSE states.
+- **No skill auto-promotion.** Approved workflows pass through
+  PATTERN -> CANDIDATE -> APPROVED -> ASSIST_ONLY -> AUTO_ELIGIBLE -> AUTO.
+- **No VS Code extension yet.** V0 uses tasks, terminal, Git panel, status and
+  state files until the state machine stabilizes.
