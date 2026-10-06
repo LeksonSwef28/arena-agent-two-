@@ -6,7 +6,7 @@ Audit mode: **ingress/lifecycle audit complete; P0-A/P0-B implementation added a
 
 ## Executive result
 
-**P0 status: FAIL (P0-A/P0-B/P0-C implemented, validation incomplete; P0-D still open).**
+**P0 status: FAIL (P0-A/P0-B/P0-C/P0-D implemented; runtime validation still incomplete).**
 
 Implementation commits after the audit:
 
@@ -429,19 +429,49 @@ matrix above, especially:
 
 ### P0-D — standalone/secondary server policy
 
-Safe launcher must not start standalone MCP/WS/stream or other secondary servers.
-If project-safe support for them is ever desired, they must reuse the canonical
-policy rather than maintain a HOME-based parallel jail.
+**Implementation status: IMPLEMENTED / TEST EXECUTION PENDING.**
+
+The production secondary-runtime audit identified these project-safe V0
+surfaces:
+
+- standalone MCP Streamable HTTP server (default 8767);
+- standalone MCP WebSocket server (default 8768);
+- gRPC-style secondary JSON interface (default 50051);
+- standalone Web Gateway (default 8769, including /run);
+- Windows Interactive Input Helper (default 19222, input + process launch);
+- Serena MCP helper, which can spawn an external MCP server process.
+
+Project-safe now refuses these paths before network bind, thread/task creation,
+or external process spawn. Defense-in-depth also blocks:
+
+- direct calls to the standalone MCP RPC dispatcher/tool dispatcher;
+- direct entry into the gRPC server loop;
+- Web Gateway request handling if its handler is manually hosted;
+- Input Helper request authentication if its handler is manually hosted.
+
+The project-safe launcher is regression-checked to remain a single unified
+bridge launch and not start the secondary helpers.
+
+Developer/test/fuzz listeners were audited separately and are not counted as
+runtime secondary surfaces. They do not expand the project-safe launcher
+surface.
+
+If project-safe support for a secondary server is ever desired later, it must
+reuse the canonical project-safe policy rather than maintain a parallel HOME
+jail or separate capability model.
 
 ---
 
 ## 8. Stop point
 
-P0-A, P0-B and P0-C have now been implemented. Per the agreed workflow,
-**stop here before P0-D functional changes** and review/test this slice first.
+P0-A, P0-B, P0-C and P0-D have now been implemented.
+
+**Stop here before P1.** The next block is validation, not architecture or new
+features.
 
 GitHub Actions still reports no workflow run/status for the current fork commit,
-so P0-C Windows execution evidence is **NOT RUN / PENDING**, not PASS.
+so P0 execution evidence is **NOT RUN / PENDING**, not PASS. P0-C additionally
+requires real Windows execution evidence for junction/reparse behavior.
 
 What is now known:
 
@@ -451,5 +481,5 @@ What is now known:
 - the Windows test matrix has been defined;
 - P0 is demonstrably not complete.
 
-Next action requires review/approval of this audit before implementing P0-A /
-P0-B / P0-C.
+Next action is the targeted P0 validation run on the intended Windows
+environment. P1 remains blocked until that evidence is green.
