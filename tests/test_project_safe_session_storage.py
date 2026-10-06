@@ -56,7 +56,7 @@ def _state(project: Path, session_id: str, *, revision: int) -> StateSnapshot:
         "lifecycle": {
             "status": "ACTIVE",
             "phase": "PLANNING",
-            "reason": reason,
+            "reason": None,
             "changed_at": NOW,
         },
         "workspace": {
@@ -143,7 +143,7 @@ def _draft(
             "summary": {"path": "src/foo.py", "op": "edit"},
         },
         "workspace_digest_context": SHA256_A,
-        "reason": None,
+        "reason": reason,
     }
 
 
