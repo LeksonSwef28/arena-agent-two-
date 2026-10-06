@@ -74,3 +74,22 @@ def test_tree_does_not_follow_directory_symlink_outside_workspace(tmp_path, monk
     text = _text(result)
     assert "secret.txt" not in text
     assert "linked-outside" not in text
+
+
+
+def test_sensitive_basenames_are_casefolded(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
+    root = tmp_path / "project"
+    root.mkdir()
+    ctx = _ctx(root)
+
+    from arena.mcp.tool_fs import _validate_workspace_path
+    from arena.mcp.tool_fs_tree_diff import _validate_path
+
+    _path, error = _validate_workspace_path("TOKEN.TXT", ctx)
+    assert error is not None
+    assert "BLOCKED" in error["content"][0]["text"]
+
+    _path, error = _validate_path("TOKEN.TXT", ctx)
+    assert error is not None
+    assert "BLOCKED" in error["content"][0]["text"]
