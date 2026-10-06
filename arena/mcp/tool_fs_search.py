@@ -19,6 +19,7 @@ from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
+_MCP_BLOCKED_FILES_CASEFOLD = frozenset(name.casefold() for name in _MCP_BLOCKED_FILES)
 
 # Safety limits
 _MAX_FILES_SCANNED = 500
@@ -74,7 +75,7 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
     for fpath in search_files:
         if files_scanned >= _MAX_FILES_SCANNED:
             break
-        if fpath.name in _MCP_BLOCKED_FILES:
+        if fpath.name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
             continue
         files_scanned += 1
         matches = _search_file(fpath, regex, context_lines)
@@ -115,7 +116,7 @@ def _collect_files(root: Path, glob_filter: str, ctx) -> list[Path]:
         dirnames[:] = safe_dirs
 
         for fname in sorted(filenames):
-            if fname in _MCP_BLOCKED_FILES:
+            if fname.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
                 continue
             discovered = base / fname
             resolved, reason = resolve_workspace_path(str(discovered), ctx)
