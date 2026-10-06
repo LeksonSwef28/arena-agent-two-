@@ -46,6 +46,17 @@ def optional_string(value: Any, label: str) -> str | None:
     return string_value(value, label)
 
 
+def relative_path_value(value: Any, label: str) -> str:
+    text = string_value(value, label)
+    normalized = text.replace("\\", "/")
+    parts = normalized.split("/")
+    if normalized.startswith("/") or not parts or any(part in {"", ".", ".."} for part in parts):
+        raise SchemaError(f"{label} must be a safe normalized relative path")
+    if ":" in parts[0]:
+        raise SchemaError(f"{label} must not contain a drive or URI scheme")
+    return normalized
+
+
 def integer_value(value: Any, label: str, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise SchemaError(f"{label} must be an integer >= {minimum}")
@@ -128,6 +139,6 @@ def to_data(value: Any) -> Any:
 
 __all__ = [
     "SchemaError", "boolean_value", "enum_value", "exact_keys", "git_sha_value",
-    "integer_value", "object_value", "optional_string", "sha256_value",
-    "string_value", "to_data", "utc_value", "uuid4_value",
+    "integer_value", "object_value", "optional_string", "relative_path_value",
+    "sha256_value", "string_value", "to_data", "utc_value", "uuid4_value",
 ]
