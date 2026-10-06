@@ -260,12 +260,24 @@ class ProjectSafeSessionCoordinator:
             )
 
         self.registry.activate_session(session_id, at=timestamp)
+
+        target_status = "ACTIVE"
+        target_reason = None
+        if (
+            state.lifecycle.status is LifecycleStatus.PAUSED
+            and state.active_flow is not None
+        ):
+            _, current_digest = compute_workspace_digest_v1(self.project_root)
+            if current_digest != state.active_flow.workspace_digest_expected_current:
+                target_status = "WAITING"
+                target_reason = "WORKSPACE_DRIFT"
+
         raw = state.to_dict()
         old = state.lifecycle.status.value
         raw["lifecycle"] = {
             **raw["lifecycle"],
-            "status": "ACTIVE",
-            "reason": None,
+            "status": target_status,
+            "reason": target_reason,
             "changed_at": timestamp,
         }
         return self._write_event_state(
@@ -276,7 +288,11 @@ class ProjectSafeSessionCoordinator:
                 {
                     "event_type": "STATUS_CHANGED",
                     "recorded_at": timestamp,
-                    "data": {"from": old, "to": "ACTIVE", "reason": None},
+                    "data": {
+                        "from": old,
+                        "to": target_status,
+                        "reason": target_reason,
+                    },
                 }
             ],
         )
