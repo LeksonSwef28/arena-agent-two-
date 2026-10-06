@@ -18,6 +18,7 @@ from .schema_types import (
     LifecyclePhase,
     LifecycleReason,
     LifecycleStatus,
+    RecoveryReason,
     RequestedMode,
     ResourceType,
     RiskClass,
@@ -46,7 +47,7 @@ __all__ = [
     "EventType", "SessionEventRecord",
     "ExecutionState", "FileResourceBefore", "GoalState", "JournalRecord",
     "LifecyclePhase", "LifecycleReason", "LifecycleState", "LifecycleStatus",
-    "LimitsState", "ProjectState", "RecoveryState", "RequestedMode", "ResourceType",
+    "LimitsState", "ProjectState", "RecoveryReason", "RecoveryState", "RequestedMode", "ResourceType",
     "RiskClass", "SCHEMA_VERSION", "SchemaError", "StateSnapshot",
     "WorkspaceBaseline", "WorkspaceState",
 ]
