@@ -260,6 +260,22 @@ def compute_workspace_digest_v1(
     return second, second.digest
 
 
+
+def workspace_is_clean_v1(project_root: str | os.PathLike[str]) -> bool:
+    """Return Git-visible cleanliness under the same deterministic v1 config."""
+    root = _canonical_repo_root(project_root)
+    raw = _git(
+        root,
+        [
+            "-c", "core.autocrlf=input",
+            "-c", "core.fileMode=false",
+            "status", "--porcelain=v1", "-z", "--untracked-files=all",
+            "--ignore-submodules=none", "--no-renames",
+        ],
+    )
+    return raw == b""
+
+
 def assert_flow_workspace_guard(
     project_root: str | os.PathLike[str],
     expected_digest: str,
@@ -422,5 +438,5 @@ __all__ = [
     "assert_flow_workspace_guard", "capture_file_resource_before",
     "compute_workspace_digest_v1", "compute_workspace_manifest_once",
     "file_effect_target_fingerprint", "read_file_resource_backup_v1",
-    "validate_file_resource_cas",
+    "validate_file_resource_cas", "workspace_is_clean_v1",
 ]
