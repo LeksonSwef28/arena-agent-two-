@@ -49,6 +49,20 @@ class LifecycleReason(_StrEnum):
     UNSUPPORTED_REPO_LAYOUT = "UNSUPPORTED_REPO_LAYOUT"
 
 
+class RecoveryReason(_StrEnum):
+    INTERRUPTED_ACTION = "INTERRUPTED_ACTION"
+    JOURNAL_CORRUPT = "JOURNAL_CORRUPT"
+    TRUNCATED_LAST_RECORD = "TRUNCATED_LAST_RECORD"
+    EVENT_JOURNAL_CORRUPT = "EVENT_JOURNAL_CORRUPT"
+    PAYLOAD_INTEGRITY_FAILURE = "PAYLOAD_INTEGRITY_FAILURE"
+    CHECKPOINT_INTEGRITY_FAILURE = "CHECKPOINT_INTEGRITY_FAILURE"
+    STATE_JOURNAL_MISMATCH = "STATE_JOURNAL_MISMATCH"
+    REGISTRY_MISMATCH = "REGISTRY_MISMATCH"
+    WORKSPACE_DRIFT = "WORKSPACE_DRIFT"
+    LEASE_AMBIGUOUS = "LEASE_AMBIGUOUS"
+    STATE_CORRUPT = "STATE_CORRUPT"
+
+
 class BindingStatus(_StrEnum):
     UNBOUND = "UNBOUND"
     BOUND = "BOUND"
@@ -113,5 +127,5 @@ class RiskClass(_StrEnum):
 __all__ = [
     "ActionState", "BindingStatus", "BrowserRole", "CheckpointKind",
     "EffectStatus", "EventType", "LifecyclePhase", "LifecycleReason", "LifecycleStatus",
-    "RequestedMode", "ResourceType", "RiskClass", "SCHEMA_VERSION",
+    "RecoveryReason", "RequestedMode", "ResourceType", "RiskClass", "SCHEMA_VERSION",
 ]
