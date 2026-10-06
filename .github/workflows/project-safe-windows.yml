@@ -80,4 +80,5 @@ jobs:
             tests/test_project_safe_launcher.py `
             tests/test_project_safe_session_foundation.py `
             tests/test_project_safe_session_schemas.py `
+            tests/test_project_safe_session_storage.py `
             tests/test_architecture_boundaries.py
