@@ -65,7 +65,7 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
     if path.is_file():
         search_files = [path]
     elif path.is_dir():
-        search_files = _collect_files(path, glob_filter)
+        search_files = _collect_files(path, glob_filter, ctx)
     else:
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: path not found: {path}"}]}
 
@@ -99,25 +99,41 @@ def handle_fs_search_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, 
     return text_content("\n".join(lines))
 
 
-def _collect_files(root: Path, glob_filter: str) -> list[Path]:
-    """Collect files under root, optionally filtered by glob pattern."""
-    files = []
-    if glob_filter:
-        files = sorted(root.rglob(glob_filter))
-        # Filter to only files, not directories
-        files = [f for f in files if f.is_file()]
-    else:
-        for dirpath, dirnames, filenames in os.walk(root):
-            # Skip hidden directories and common junk
-            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in {"__pycache__", "node_modules", ".git", "venv", ".venv"}]
-            for fname in sorted(filenames):
-                if fname in _MCP_BLOCKED_FILES:
-                    continue
-                files.append(Path(dirpath) / fname)
-            if len(files) >= _MAX_FILES_SCANNED:
-                break
-    return files[:_MAX_FILES_SCANNED]
+def _collect_files(root: Path, glob_filter: str, ctx) -> list[Path]:
+    """Collect only canonically workspace-contained files below root."""
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        base = Path(dirpath)
 
+        safe_dirs: list[str] = []
+        for dirname in dirnames:
+            if dirname.startswith(".") or dirname in {"__pycache__", "node_modules", ".git", "venv", ".venv"}:
+                continue
+            resolved, reason = resolve_workspace_path(str(base / dirname), ctx)
+            if reason is None and resolved is not None and resolved.is_dir():
+                safe_dirs.append(dirname)
+        dirnames[:] = safe_dirs
+
+        for fname in sorted(filenames):
+            if fname in _MCP_BLOCKED_FILES:
+                continue
+            discovered = base / fname
+            resolved, reason = resolve_workspace_path(str(discovered), ctx)
+            if reason is not None or resolved is None or not resolved.is_file():
+                continue
+
+            if glob_filter:
+                try:
+                    rel = resolved.relative_to(root)
+                except ValueError:
+                    continue
+                if not (rel.match(glob_filter) or resolved.name == glob_filter):
+                    continue
+
+            files.append(resolved)
+            if len(files) >= _MAX_FILES_SCANNED:
+                return files
+    return files
 
 def _search_file(fpath: Path, regex: re.Pattern, context_lines: int) -> list[dict[str, Any]]:
     """Search a single file for regex matches. Returns list of match dicts."""
