@@ -108,7 +108,7 @@ def test_symlink_escape_is_refused_and_write_through_link_fails_closed(tmp_path,
     assert err and ("reparse" in err or "symlink" in err)
 
 
-def test_hardlinked_file_is_readable_but_not_writable_project_safe(tmp_path, monkeypatch):
+def test_hardlinked_file_is_denied_project_safe(tmp_path, monkeypatch):
     monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
     root = tmp_path / "project"
     outside = tmp_path / "outside"
@@ -123,9 +123,8 @@ def test_hardlinked_file_is_readable_but_not_writable_project_safe(tmp_path, mon
         pytest.skip(f"hardlink creation unavailable: {exc}")
 
     ctx = _ctx(root)
-    resolved, err = resolve_workspace_path(str(link), ctx)
-    assert err is None
-    assert resolved == link.resolve()
+    _resolved, err = resolve_workspace_path(str(link), ctx)
+    assert err and "multiply-linked" in err
 
     _resolved, err = resolve_workspace_path(str(link), ctx, for_write=True)
     assert err and "multiply-linked" in err
@@ -145,6 +144,7 @@ def test_hardlinked_file_is_readable_but_not_writable_project_safe(tmp_path, mon
         ("NUL.txt", "reserved Windows device"),
         ("COM1.py", "reserved Windows device"),
         ("LPT9.log", "reserved Windows device"),
+        ("PROJEC~1\\file.txt", "8.3 short-name"),
     ],
 )
 def test_windows_lexical_hazards_are_rejected_portably(raw, needle):
