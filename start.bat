@@ -55,9 +55,9 @@ if not defined PYTHON (
     exit /b 3
 )
 
-"!PYTHON!" -c "import aiohttp, psutil, websockets" >nul 2>&1
+"!PYTHON!" -c "import aiohttp" >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Arena runtime dependencies are missing.
+    echo [ERROR] Required Arena dependency aiohttp is missing.
     echo Install them manually after review; this launcher will not run pip/winget/choco/scoop.
     exit /b 4
 )

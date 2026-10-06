@@ -27,6 +27,7 @@ env/
 memory/facts.jsonl
 memory/history.jsonl
 .arena-local-bridge/
+.arena-state/
 audit.jsonl
 audit.jsonl.*
 
