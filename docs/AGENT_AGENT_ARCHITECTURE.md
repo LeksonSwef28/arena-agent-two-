@@ -235,6 +235,27 @@ Rules:
 - context exhaustion produces a full stop; no automatic new browser chat;
 - Resume must reconstruct state from persisted records, not model memory.
 
+## 6.1 Browser interaction budget / pacing
+
+Browser-facing models are treated as slow external advisory services.
+
+The detailed policy is defined in:
+
+- `docs/BROWSER_INTERACTION_PACING_POLICY.md`
+
+Core invariants:
+
+- one in-flight interaction per provider;
+- no retry storms;
+- explicit quota/rate-limit signals move the provider to `LIMIT_REACHED`;
+- slow generation is `WAITING_MODEL`, not failure;
+- no global clipboard/key logging;
+- only registered project browser bindings may be forwarded/logged;
+- browser payloads are compact review packets, not routine shell chatter;
+- pacing is deterministic resource control, not human-behavior simulation;
+- no automatic creation of replacement chats/accounts to bypass limits;
+- auto-submit remains OFF until the provider workflow is explicitly approved.
+
 ## 7. Session state, action journal and provenance
 
 These are separate concerns.
