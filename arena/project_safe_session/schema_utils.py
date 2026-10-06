@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any, Mapping, TypeVar
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_GIT_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 
 TEnum = TypeVar("TEnum", bound=Enum)
@@ -92,7 +92,7 @@ def git_sha_value(value: Any, label: str, *, optional: bool = False) -> str | No
         return None
     text = string_value(value, label)
     if _GIT_SHA_RE.fullmatch(text) is None:
-        raise SchemaError(f"{label} must be 40 lowercase hex characters")
+        raise SchemaError(f"{label} must be 40 or 64 lowercase hex characters")
     return text
 
 
