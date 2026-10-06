@@ -25,6 +25,7 @@ from .schema_types import (
 )
 from .schema_utils import SchemaError
 from .state_models import (
+    ActiveFlowState,
     BrowserBinding,
     BrowserState,
     ExecutionState,
@@ -39,7 +40,7 @@ from .state_models import (
 )
 
 __all__ = [
-    "ActionInputRef", "ActionState", "BindingStatus", "BrowserBinding",
+    "ActionInputRef", "ActiveFlowState", "ActionState", "BindingStatus", "BrowserBinding",
     "BrowserResourceTarget", "BrowserRole", "BrowserState", "CheckpointKind",
     "CheckpointManifest", "CheckpointResource", "EffectEvidence", "EffectStatus",
     "EventType", "SessionEventRecord",
