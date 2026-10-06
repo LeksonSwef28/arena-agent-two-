@@ -63,9 +63,9 @@ def project_safe_block_reason(tool: str) -> str | None:
 
 def filter_project_safe_tools(tools: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Hide blocked capabilities from tool catalogs to reduce model confusion."""
-    rows = list(tools)
     if not project_safe_enabled():
-        return rows
+        return tools if isinstance(tools, list) else list(tools)
+    rows = list(tools)
     return [tool for tool in rows if project_safe_block_reason(str(tool.get("name", ""))) is None]
 
 

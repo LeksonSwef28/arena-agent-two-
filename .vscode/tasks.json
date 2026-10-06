@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Arena: project-safe read-only",
+      "type": "shell",
+      "command": "${workspaceFolder}\\\\start.bat",
+      "args": [
+        "${input:arenaProjectRoot}",
+        "read"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Arena: project-safe workspace-write",
+      "type": "shell",
+      "command": "${workspaceFolder}\\\\start.bat",
+      "args": [
+        "${input:arenaProjectRoot}",
+        "write"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "arenaProjectRoot",
+      "type": "promptString",
+      "description": "Absolute path to the ONE project/worktree Arena may access"
+    }
+  ]
+}
