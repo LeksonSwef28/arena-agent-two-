@@ -97,6 +97,7 @@ async def grpc_server_loop(
     log_error: Callable[..., None] | None = None,
 ) -> None:
     """Run the gRPC-style secondary interface server."""
+    require_project_safe_secondary_server_disabled("gRPC-style secondary interface")
     port = GRPC_CONFIG["port"]
     app = web.Application(client_max_size=10 * 1024 * 1024)
     app["_bridge_cfg"] = cfg
