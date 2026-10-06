@@ -65,13 +65,22 @@ def _handle_fs_tree(args: dict[str, Any], ctx) -> dict[str, Any]:
         return text_content(f"{path.name}  (file, {path.stat().st_size} bytes)")
 
     entries = []
-    _build_tree(path, "", 0, max_depth, show_files, glob_filter, entries)
+    _build_tree(path, "", 0, max_depth, show_files, glob_filter, entries, ctx)
     if not entries:
         return text_content(f"{path}\n(empty directory)")
     return text_content("\n".join(entries))
 
 
-def _build_tree(dir_path: Path, prefix: str, depth: int, max_depth: int, show_files: bool, glob_filter: str, entries: list[str]) -> None:
+def _build_tree(
+    dir_path: Path,
+    prefix: str,
+    depth: int,
+    max_depth: int,
+    show_files: bool,
+    glob_filter: str,
+    entries: list[str],
+    ctx,
+) -> None:
     """Recursively build tree lines."""
     if depth >= max_depth or len(entries) >= _MAX_TREE_ENTRIES:
         return
@@ -80,36 +89,47 @@ def _build_tree(dir_path: Path, prefix: str, depth: int, max_depth: int, show_fi
     except (PermissionError, OSError):
         return
 
-    # Filter
-    filtered = []
+    # Filter and canonicalize every discovered entry. Validating only the
+    # starting directory is insufficient because a nested symlink/junction may
+    # point outside the selected workspace.
+    filtered: list[tuple[Path, Path]] = []
     for item in items:
         if item.name.startswith("."):
             continue
         if item.name in {"__pycache__", "node_modules", ".git", "venv", ".venv"}:
             continue
-        if item.is_dir():
-            filtered.append(item)
+        resolved, reason = resolve_workspace_path(str(item), ctx)
+        if reason is not None or resolved is None:
+            continue
+        if resolved.is_dir():
+            filtered.append((item, resolved))
         elif show_files:
-            if glob_filter:
-                if item.match(glob_filter):
-                    filtered.append(item)
-            else:
-                filtered.append(item)
+            if not glob_filter or item.match(glob_filter):
+                filtered.append((item, resolved))
 
-    for i, item in enumerate(filtered):
+    for i, (display_item, item) in enumerate(filtered):
         is_last = (i == len(filtered) - 1)
         connector = "└── " if is_last else "├── "
         if len(entries) >= _MAX_TREE_ENTRIES:
             entries.append(prefix + "└── ... (truncated)")
             return
         if item.is_dir():
-            entries.append(prefix + connector + item.name + "/")
+            entries.append(prefix + connector + display_item.name + "/")
             extension = "    " if is_last else "│   "
-            _build_tree(item, prefix + extension, depth + 1, max_depth, show_files, glob_filter, entries)
+            _build_tree(
+                item,
+                prefix + extension,
+                depth + 1,
+                max_depth,
+                show_files,
+                glob_filter,
+                entries,
+                ctx,
+            )
         else:
             size = item.stat().st_size
             size_str = f"  ({_format_size(size)})" if size > 0 else ""
-            entries.append(prefix + connector + item.name + size_str)
+            entries.append(prefix + connector + display_item.name + size_str)
 
 
 def _format_size(size: int) -> str:
