@@ -11,6 +11,7 @@ from typing import Any, Callable, Generic, Mapping, TypeVar
 from .action_contract import (
     ActionContractError,
     action_identity_from_draft,
+    compute_args_hash,
     compute_attempt_id,
     validate_action_history,
     validate_action_record,
@@ -257,6 +258,13 @@ class ProjectSafeSessionStore:
             validate_action_history(result.records)
         except ActionContractError as exc:
             raise JournalCorruptionError(f"action contract violation: {exc}") from exc
+
+        seen: set[str] = set()
+        for record in result.records:
+            if record.action_id in seen:
+                continue
+            self._verify_action_input(record)
+            seen.add(record.action_id)
         return result
 
     def read_events(self) -> JournalReadResult[SessionEventRecord]:
@@ -269,6 +277,24 @@ class ProjectSafeSessionStore:
 
     def _repair_trailing_newline(self, path: Path) -> None:
         _durable_append(path, b"\n")
+
+    def _verify_action_input(self, record: JournalRecord) -> None:
+        data = self.read_action_payload(
+            record.input.payload_ref,
+            record.input.payload_sha256,
+        )
+        try:
+            parsed = strict_json_loads(data)
+            semantic_hash = compute_args_hash(parsed)
+        except Exception as exc:
+            raise PayloadIntegrityError(
+                f"invalid semantic action input for {record.action_id}: {exc}"
+            ) from exc
+        if semantic_hash != record.input.args_hash:
+            raise PayloadIntegrityError(
+                f"semantic args_hash mismatch for {record.action_id}: "
+                f"expected {record.input.args_hash}, got {semantic_hash}"
+            )
 
     def append_action(self, draft: Mapping[str, Any]) -> JournalRecord:
         with self._lock:
@@ -325,6 +351,8 @@ class ProjectSafeSessionStore:
             except ActionContractError as exc:
                 raise StorageError(f"invalid action transition: {exc}") from exc
 
+            self._verify_action_input(record)
+
             _durable_append(
                 self.actions_path,
                 canonical_json_bytes(record.to_dict()) + b"\n",
@@ -356,6 +384,17 @@ class ProjectSafeSessionStore:
                 canonical_json_bytes(record.to_dict()) + b"\n",
             )
             return record
+
+    def write_action_input(
+        self,
+        action_id: str,
+        canonical_args: Mapping[str, Any],
+    ) -> tuple[str, str, str]:
+        """Persist canonical semantic input and return (ref, args_hash, payload_sha256)."""
+        args_hash = compute_args_hash(canonical_args)
+        payload = canonical_json_bytes(dict(canonical_args))
+        relative, payload_sha = self.write_action_payload(action_id, "input.json", payload)
+        return relative, args_hash, payload_sha
 
     def write_action_payload(self, action_id: str, name: str, data: bytes) -> tuple[str, str]:
         """Persist immutable input/result bytes and return (relative_ref, sha256)."""
