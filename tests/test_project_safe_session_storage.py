@@ -14,6 +14,8 @@ from arena.project_safe_session import (
     ProjectLease,
     ProjectSafeSessionStore,
     StateRevisionError,
+    compute_action_id,
+    compute_attempt_id,
     StateSnapshot,
     StorageError,
     TruncatedLastRecordError,
@@ -54,7 +56,7 @@ def _state(project: Path, session_id: str, *, revision: int) -> StateSnapshot:
         "lifecycle": {
             "status": "ACTIVE",
             "phase": "PLANNING",
-            "reason": None,
+            "reason": reason,
             "changed_at": NOW,
         },
         "workspace": {
@@ -94,19 +96,33 @@ def _state(project: Path, session_id: str, *, revision: int) -> StateSnapshot:
     return StateSnapshot.from_dict(raw)
 
 
+def _action_id(session_id: str) -> str:
+    return compute_action_id(
+        session_id=session_id,
+        proposal_id="proposal-1",
+        proposal_digest=SHA256_B,
+        action_type="fs.edit",
+        effect_target_fingerprint=SHA256_C,
+        args_hash=SHA256_A,
+    )
+
+
 def _draft(
+    session_id: str,
     action_id: str,
     payload_ref: str,
     payload_sha256: str,
     *,
     state: str = "PREPARED",
     effect: str = "NONE",
+    attempt_seq: int = 1,
+    reason=None,
 ) -> dict:
     return {
         "action_id": action_id,
         "flow_id": _uuid(),
-        "attempt_seq": 1,
-        "attempt_id": SHA256_B,
+        "attempt_seq": attempt_seq,
+        "attempt_id": compute_attempt_id(action_id, attempt_seq),
         "state": state,
         "effect": {
             "status": effect,
@@ -203,12 +219,16 @@ def test_strict_json_loads_rejects_duplicate_keys_and_nan():
 def test_action_journal_owns_sequence_and_hash_chain(tmp_path: Path):
     _, lease, store = _store(tmp_path)
     try:
+        action_id = _action_id(store.session_id)
         payload_ref, payload_sha = store.write_action_payload(
-            SHA256_A, "input.json", b'{"path":"src/foo.py"}'
+            action_id, "input.json", b'{"path":"src/foo.py"}'
         )
-        first = store.append_action(_draft(SHA256_A, payload_ref, payload_sha))
+        first = store.append_action(
+            _draft(store.session_id, action_id, payload_ref, payload_sha)
+        )
         second_draft = _draft(
-            SHA256_A,
+            store.session_id,
+            action_id,
             payload_ref,
             payload_sha,
             state="EXECUTING",
@@ -236,10 +256,13 @@ def test_action_journal_owns_sequence_and_hash_chain(tmp_path: Path):
 def test_action_journal_detects_hash_chain_corruption(tmp_path: Path):
     _, lease, store = _store(tmp_path)
     try:
+        action_id = _action_id(store.session_id)
         payload_ref, payload_sha = store.write_action_payload(
-            SHA256_A, "input.json", b'{"path":"src/foo.py"}'
+            action_id, "input.json", b'{"path":"src/foo.py"}'
         )
-        store.append_action(_draft(SHA256_A, payload_ref, payload_sha))
+        store.append_action(
+            _draft(store.session_id, action_id, payload_ref, payload_sha)
+        )
 
         raw = bytearray(store.actions_path.read_bytes())
         marker = b'"proposal_id":"proposal-1"'
@@ -268,10 +291,13 @@ def test_invalid_unterminated_last_record_is_truncated_not_silently_skipped(tmp_
 def test_valid_record_without_newline_is_accepted_and_repaired_before_append(tmp_path: Path):
     _, lease, store = _store(tmp_path)
     try:
+        action_id = _action_id(store.session_id)
         payload_ref, payload_sha = store.write_action_payload(
-            SHA256_A, "input.json", b'{"path":"src/foo.py"}'
+            action_id, "input.json", b'{"path":"src/foo.py"}'
         )
-        first = store.append_action(_draft(SHA256_A, payload_ref, payload_sha))
+        first = store.append_action(
+            _draft(store.session_id, action_id, payload_ref, payload_sha)
+        )
         data = store.actions_path.read_bytes()
         assert data.endswith(b"\n")
         store.actions_path.write_bytes(data[:-1])
@@ -281,7 +307,8 @@ def test_valid_record_without_newline_is_accepted_and_repaired_before_append(tmp
         assert reread.missing_trailing_newline is True
 
         second_draft = _draft(
-            SHA256_A,
+            store.session_id,
+            action_id,
             payload_ref,
             payload_sha,
             state="EXECUTING",
