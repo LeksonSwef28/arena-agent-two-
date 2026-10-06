@@ -379,6 +379,41 @@ def validate_file_resource_cas(
     return resolved
 
 
+
+def read_file_resource_backup_v1(
+    project_root: str | os.PathLike[str],
+    resource_before: FileResourceBefore,
+    *,
+    size_limit: int = RESOURCE_BACKUP_LIMIT,
+) -> bytes | None:
+    """Read exact before-bytes for a durable checkpoint under the same CAS."""
+    target = validate_file_resource_cas(project_root, resource_before)
+    if not resource_before.exists:
+        return None
+    try:
+        size = target.stat().st_size
+    except OSError as exc:
+        raise WorkspaceError(f"cannot stat checkpoint resource: {exc}") from exc
+    if size > size_limit:
+        raise ResourceTooLargeError(
+            f"resource is {size} bytes; P1-v1 limit is {size_limit} bytes"
+        )
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        raise WorkspaceUnstableError(
+            f"resource changed while checkpoint bytes were read: {exc}"
+        ) from exc
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != resource_before.content_sha256:
+        raise ResourceDriftError(
+            "checkpoint bytes no longer match resource_before.content_sha256"
+        )
+    # Catch a mutation that raced with the read before publishing the checkpoint.
+    validate_file_resource_cas(project_root, resource_before)
+    return data
+
+
 __all__ = [
     "IndexEntry", "RESOURCE_BACKUP_LIMIT", "ResourceBoundaryError",
     "ResourceDriftError", "ResourceTooLargeError", "UnsupportedRepoLayoutError",
@@ -386,5 +421,6 @@ __all__ = [
     "WorkspaceManifest", "WorkspaceUnstableError", "WorktreeEntry",
     "assert_flow_workspace_guard", "capture_file_resource_before",
     "compute_workspace_digest_v1", "compute_workspace_manifest_once",
-    "file_effect_target_fingerprint", "validate_file_resource_cas",
+    "file_effect_target_fingerprint", "read_file_resource_backup_v1",
+    "validate_file_resource_cas",
 ]
