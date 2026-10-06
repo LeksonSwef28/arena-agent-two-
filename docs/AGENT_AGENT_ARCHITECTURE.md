@@ -480,16 +480,24 @@ See:
 - `docs/PROJECT_SAFE_P0_AUDIT_FINDINGS_2026-10-06.md`
 - `docs/PROJECT_SAFE_P0_AUDIT_PLAN.md`
 
-### Remaining P0 work
+### P0 implementation progress
 
-- **P0-A:** finish/apply app-level HTTP fail-closed allowlist and regression
-  tests;
-- **P0-B:** disable latent/background executors in project-safe lifecycle;
-- **P0-C:** harden Windows path handling and execute Windows-only boundary
+- **P0-A:** IMPLEMENTED — exact method/path HTTP allowlist middleware is wired
+  into the unified aiohttp app; regression + middleware integration tests are
+  present. Test execution remains PENDING.
+- **P0-B:** IMPLEMENTED — project-safe startup disables task runner, file-watch,
+  mission scheduler, ydotoold, post-update smoke and tunnel autostarts; normal
+  mode remains unchanged. Test execution remains PENDING.
+- **P0-C:** NOT STARTED — harden Windows path handling and execute Windows-only boundary
   tests, including case-insensitive `.git`, UNC/drive-relative/device paths,
   reparse/junction escape, nonexistent targets and TOCTOU strategy;
-- **P0-D:** prevent standalone/secondary execution servers from bypassing the
-  canonical policy.
+- **P0-D:** NOT STARTED — prevent standalone/secondary execution servers from
+  bypassing the canonical policy.
+
+Validation note: GitHub Actions has not produced workflow runs/statuses for the
+fork branch, and the assistant runtime could not clone GitHub because outbound
+network/DNS was unavailable. Therefore the current P0-A/P0-B state is
+**IMPLEMENTED / NOT RUN**, not PASS.
 
 No P1 implementation begins until those are evidenced as PASS.
 
