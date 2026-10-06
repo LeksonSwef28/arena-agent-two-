@@ -7,6 +7,8 @@ from typing import Any, Callable
 import aiohttp
 from aiohttp import web
 
+from arena.project_safe import require_project_safe_secondary_server_disabled
+
 GRPC_CONFIG: dict[str, Any] = {
     "enabled": False,
     "port": 50051,
@@ -144,6 +146,7 @@ def start_grpc_server(
     log_error: Callable[..., None] | None = None,
 ) -> asyncio.Task:
     """Start the gRPC-style secondary server task."""
+    require_project_safe_secondary_server_disabled("gRPC-style secondary interface")
     global _GRPC_SERVER_TASK
     _GRPC_SERVER_TASK = asyncio.create_task(grpc_server_loop(cfg, log_info=log_info, log_error=log_error))
     return _GRPC_SERVER_TASK
