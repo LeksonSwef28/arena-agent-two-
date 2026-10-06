@@ -166,6 +166,10 @@ def _parse_index(raw: bytes) -> tuple[IndexEntry, ...]:
         stage = int(stage_b.decode("ascii", "strict"))
         if mode == "160000":
             raise UnsupportedRepoLayoutError("Git submodules are unsupported in project-safe v1")
+        if stage != 0:
+            raise UnsupportedRepoLayoutError(
+                "unmerged/conflicted Git index stages are unsupported in project-safe v1"
+            )
         if len(object_id) not in {40, 64} or any(ch not in "0123456789abcdef" for ch in object_id):
             raise WorkspaceGitError("unexpected Git object id in index")
         path = relative_path_value(os.fsdecode(path_bytes), "git index path")
@@ -204,13 +208,25 @@ def _worktree_entry(root: Path, relative: str) -> WorktreeEntry:
         raise WorkspaceError(f"cannot hash workspace path {relative}: {exc}") from exc
 
 
-def _name_list(raw: bytes) -> list[str]:
-    names = [
-        relative_path_value(os.fsdecode(chunk), "git path")
-        for chunk in raw.split(b"\0")
-        if chunk
-    ]
-    return sorted(set(names))
+def _parse_porcelain_status(raw: bytes) -> tuple[list[str], list[str]]:
+    """Return (unstaged_tracked, untracked) from porcelain-v1 -z --no-renames."""
+    changed: set[str] = set()
+    untracked: set[str] = set()
+    for chunk in raw.split(b"\0"):
+        if not chunk:
+            continue
+        if len(chunk) < 4 or chunk[2:3] != b" ":
+            raise WorkspaceGitError("unexpected git status --porcelain=v1 record")
+        status = chunk[:2].decode("ascii", "strict")
+        path = relative_path_value(os.fsdecode(chunk[3:]), "git status path")
+        if status == "??":
+            untracked.add(path)
+            continue
+        if status == "!!":
+            continue
+        if status[1] != " ":
+            changed.add(path)
+    return sorted(changed), sorted(untracked)
 
 
 def compute_workspace_manifest_once(
@@ -224,18 +240,14 @@ def compute_workspace_manifest_once(
 
     index = _parse_index(_git(root, ["ls-files", "--stage", "-z"]))
 
-    changed = _name_list(
-        _git(
-            root,
-            [
-                "diff-files", "--name-only", "-z", "--no-renames",
-                "--ignore-submodules=none", "--",
-            ],
-        )
+    status_raw = _git(
+        root,
+        [
+            "status", "--porcelain=v1", "-z", "--untracked-files=all",
+            "--ignore-submodules=none", "--no-renames",
+        ],
     )
-    untracked_names = _name_list(
-        _git(root, ["ls-files", "--others", "--exclude-standard", "-z"])
-    )
+    changed, untracked_names = _parse_porcelain_status(status_raw)
 
     worktree = tuple(_worktree_entry(root, name) for name in changed)
     untracked = tuple(_worktree_entry(root, name) for name in untracked_names)
