@@ -22,7 +22,7 @@ __all__ = [
     "resolve_project_safe_state_root",
 ]
 
-from .canonical import canonical_json_bytes, canonical_sha256
+from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads
 from .models import (
     ActionState,
     BrowserRole,
@@ -57,4 +57,25 @@ __all__ += [
     "StateSnapshot",
     "canonical_json_bytes",
     "canonical_sha256",
+]
+
+from .storage import (
+    JournalCorruptionError,
+    LeaseRequiredError,
+    PayloadIntegrityError,
+    ProjectSafeSessionStore,
+    StateRevisionError,
+    StorageError,
+    TruncatedLastRecordError,
+)
+
+__all__ += [
+    "JournalCorruptionError",
+    "LeaseRequiredError",
+    "PayloadIntegrityError",
+    "ProjectSafeSessionStore",
+    "StateRevisionError",
+    "StorageError",
+    "TruncatedLastRecordError",
+    "strict_json_loads",
 ]
