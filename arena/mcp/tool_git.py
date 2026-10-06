@@ -34,8 +34,8 @@ def _run_git(repo_path: Path, args: list[str], timeout: int = 15) -> tuple[int, 
         code, stdout, stderr = run_project_safe_git(repo_path, args, timeout=timeout)
         return (
             code,
-            stdout.decode("utf-8", "replace"),
-            stderr.decode("utf-8", "replace"),
+            stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else str(stdout),
+            stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr),
         )
     try:
         result = subprocess.run(
