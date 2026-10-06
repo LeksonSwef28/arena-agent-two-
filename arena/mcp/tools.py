@@ -45,6 +45,7 @@ from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
 from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_ocr import handle_ocr_tool
 from arena.mcp.tool_plan import handle_plan_tool
+from arena.project_safe import filter_project_safe_tools, project_safe_block_reason
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.mcp.tool_relay import handle_relay_tool
 from arena.mcp.tool_runtime import handle_runtime_tool
@@ -178,6 +179,12 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                         "content": [{"type": "text",
                                      "text": json.dumps(_halt_block,
                                                         ensure_ascii=False)}]}
+            project_refusal = project_safe_block_reason(name)
+            if project_refusal is not None:
+                ctx.audit({"type": "project_safe.refused", "tool": name,
+                           "reason": project_refusal})
+                return {"isError": True, "content": [{"type": "text",
+                        "text": f"BLOCKED: {project_refusal}"}]}
             for handler in (
                 # v4.96.0: agent-authored custom tools (self-extending
                 # environment). Resolved first; recursion goes back through
@@ -256,6 +263,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
             # append the dynamic authored tools only when some exist.
             extra = custom_tool_defs()
             tools = MCP_TOOLS if not extra else MCP_TOOLS + extra
+            tools = filter_project_safe_tools(tools)
             return {"jsonrpc": "2.0", "id": rid, "result": {"tools": tools}}
         if m == "tools/call":
             params = msg.get("params") or {}

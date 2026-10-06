@@ -12,19 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
 
 
 def _validate_repo_path(path_str: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
-    """Validate that path is inside home directory."""
-    if not path_str:
-        return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-    resolved = Path(path_str).resolve()
-    home = Path.home().resolve()
-    if not ctx.under_root(resolved, home):
-        return None, {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+    """Validate that the repository is inside the configured workspace root."""
+    resolved, reason = resolve_workspace_path(path_str, ctx)
+    if reason:
+        return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {reason}"}]}
     return resolved, None
 
 

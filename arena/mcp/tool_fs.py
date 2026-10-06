@@ -8,20 +8,20 @@ from typing import Any
 
 from arena.files.safe_edit import apply_preview, create_preview, rollback_change
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
 
 
-def _validate_home_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
+def _validate_workspace_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
     if not path:
         return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
     if Path(path).name in _MCP_BLOCKED_FILES:
         return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: accessing {Path(path).name} is not allowed"}]}
-    resolved = Path(path).resolve()
-    home = Path.home().resolve()
-    if not ctx.under_root(resolved, home):
-        return None, {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+    resolved, reason = resolve_workspace_path(path, ctx)
+    if reason:
+        return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {reason}"}]}
     return resolved, None
 
 
@@ -64,7 +64,7 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         return _safe_edit_text_result(rollback_change(rollback_id, force=bool(args.get("force", False))))
 
     p = os.path.expanduser(args.get("path") or "")
-    path, err = _validate_home_path(p, ctx)
+    path, err = _validate_workspace_path(p, ctx)
     if err:
         if name == "fs.write" and p and Path(p).name in _MCP_BLOCKED_FILES:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}

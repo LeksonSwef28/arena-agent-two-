@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
@@ -24,15 +25,12 @@ _MAX_DIFF_SIZE = 512 * 1024  # 512 KB per file for diff
 
 
 def _validate_path(path_str: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
-    """Validate that path is inside home and not a blocked file."""
-    if not path_str:
-        return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
+    """Validate that path stays inside the configured workspace root."""
     if Path(path_str).name in _MCP_BLOCKED_FILES:
         return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: accessing {Path(path_str).name} is not allowed"}]}
-    resolved = Path(path_str).resolve()
-    home = Path.home().resolve()
-    if not ctx.under_root(resolved, home):
-        return None, {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+    resolved, reason = resolve_workspace_path(path_str, ctx)
+    if reason:
+        return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {reason}"}]}
     return resolved, None
 
 
