@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +21,7 @@ from .checkpoint_contract import (
     canonical_file_bytes_sha256,
     validate_checkpoint_manifest_digest,
 )
+from .durable_io import durable_append, durable_replace
 from .event_models import SessionEventRecord
 from .lease import ProjectLease
 from .models import CheckpointManifest, JournalRecord, StateSnapshot
@@ -74,30 +74,6 @@ _ACTION_DRAFT_KEYS = {
 }
 _EVENT_DRAFT_KEYS = {"event_type", "recorded_at", "data"}
 
-
-def _durable_replace(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    try:
-        with tmp.open("wb") as fh:
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except Exception:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-
-
-def _durable_append(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("ab") as fh:
-        fh.write(data)
-        fh.flush()
-        os.fsync(fh.fileno())
 
 
 def _record_hash(raw: Mapping[str, Any]) -> str:
@@ -255,7 +231,7 @@ class ProjectSafeSessionStore:
                     f"next state_revision must be {current_revision + 1}, got {state.state_revision}"
                 )
 
-            _durable_replace(self.state_path, canonical_json_bytes(state.to_dict()) + b"\n")
+            durable_replace(self.state_path, canonical_json_bytes(state.to_dict()) + b"\n")
 
     def read_actions(self) -> JournalReadResult[JournalRecord]:
         self._require_lease()
@@ -288,7 +264,7 @@ class ProjectSafeSessionStore:
         )
 
     def _repair_trailing_newline(self, path: Path) -> None:
-        _durable_append(path, b"\n")
+        durable_append(path, b"\n")
 
     def _verify_action_input(self, record: JournalRecord) -> None:
         data = self.read_action_payload(
@@ -365,7 +341,7 @@ class ProjectSafeSessionStore:
 
             self._verify_action_input(record)
 
-            _durable_append(
+            durable_append(
                 self.actions_path,
                 canonical_json_bytes(record.to_dict()) + b"\n",
             )
@@ -391,7 +367,7 @@ class ProjectSafeSessionStore:
             )
             raw["record_hash"] = _record_hash(raw)
             record = SessionEventRecord.from_dict(raw)
-            _durable_append(
+            durable_append(
                 self.events_path,
                 canonical_json_bytes(record.to_dict()) + b"\n",
             )
@@ -514,9 +490,9 @@ class ProjectSafeSessionStore:
                             f"partial checkpoint backup conflicts with retry: {ref}"
                         )
                     continue
-                _durable_replace(backup_path, data)
+                durable_replace(backup_path, data)
 
-            _durable_replace(
+            durable_replace(
                 manifest_path,
                 canonical_json_bytes(manifest.to_dict()) + b"\n",
             )
@@ -555,7 +531,7 @@ class ProjectSafeSessionStore:
                     )
                 return relative, digest
 
-            _durable_replace(path, data)
+            durable_replace(path, data)
             return relative, digest
 
     def read_action_payload(self, relative_ref: str, expected_sha256: str) -> bytes:
