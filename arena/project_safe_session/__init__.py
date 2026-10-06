@@ -79,3 +79,39 @@ __all__ += [
     "TruncatedLastRecordError",
     "strict_json_loads",
 ]
+
+from .workspace import (
+    RESOURCE_BACKUP_LIMIT,
+    ResourceBoundaryError,
+    ResourceDriftError,
+    ResourceTooLargeError,
+    UnsupportedRepoLayoutError,
+    WorkspaceDriftError,
+    WorkspaceError,
+    WorkspaceGitError,
+    WorkspaceManifest,
+    WorkspaceUnstableError,
+    assert_flow_workspace_guard,
+    capture_file_resource_before,
+    compute_workspace_digest_v1,
+    file_effect_target_fingerprint,
+    validate_file_resource_cas,
+)
+
+__all__ += [
+    "RESOURCE_BACKUP_LIMIT",
+    "ResourceBoundaryError",
+    "ResourceDriftError",
+    "ResourceTooLargeError",
+    "UnsupportedRepoLayoutError",
+    "WorkspaceDriftError",
+    "WorkspaceError",
+    "WorkspaceGitError",
+    "WorkspaceManifest",
+    "WorkspaceUnstableError",
+    "assert_flow_workspace_guard",
+    "capture_file_resource_before",
+    "compute_workspace_digest_v1",
+    "file_effect_target_fingerprint",
+    "validate_file_resource_cas",
+]
