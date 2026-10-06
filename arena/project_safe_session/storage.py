@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Generic, Mapping, TypeVar
 
+from .action_contract import (
+    ActionContractError,
+    action_identity_from_draft,
+    compute_attempt_id,
+    validate_action_history,
+    validate_action_record,
+)
 from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads
 from .event_models import SessionEventRecord
 from .lease import ProjectLease
@@ -240,12 +247,17 @@ class ProjectSafeSessionStore:
             _durable_replace(self.state_path, canonical_json_bytes(state.to_dict()) + b"\n")
 
     def read_actions(self) -> JournalReadResult[JournalRecord]:
-        return _read_journal(
+        result = _read_journal(
             self.actions_path,
             parser=JournalRecord.from_dict,
             seq_name="journal_seq",
             session_id=self.session_id,
         )
+        try:
+            validate_action_history(result.records)
+        except ActionContractError as exc:
+            raise JournalCorruptionError(f"action contract violation: {exc}") from exc
+        return result
 
     def read_events(self) -> JournalReadResult[SessionEventRecord]:
         return _read_journal(
@@ -267,15 +279,32 @@ class ProjectSafeSessionStore:
                 self._repair_trailing_newline(self.actions_path)
 
             records = result.records
-            action_id = sha256_value(draft["action_id"], "action draft.action_id")
-            assert action_id is not None
-            same_action = [record for record in records if record.action_id == action_id]
+            supplied_action = sha256_value(draft["action_id"], "action draft.action_id")
+            assert supplied_action is not None
+            expected_action = action_identity_from_draft(
+                session_id=self.session_id,
+                draft=draft,
+            )
+            if supplied_action != expected_action:
+                raise StorageError(
+                    f"action_id does not match deterministic action-v1 identity: "
+                    f"expected {expected_action}, got {supplied_action}"
+                )
+
+            same_action = [record for record in records if record.action_id == supplied_action]
             if same_action:
                 action_seq = same_action[0].action_seq
                 transition_seq = same_action[-1].transition_seq + 1
             else:
                 action_seq = max((record.action_seq for record in records), default=0) + 1
                 transition_seq = 1
+
+            attempt_seq = draft["attempt_seq"]
+            expected_attempt = compute_attempt_id(supplied_action, attempt_seq)
+            if draft["attempt_id"] != expected_attempt:
+                raise StorageError(
+                    f"attempt_id does not match attempt-v1 identity for attempt {attempt_seq}"
+                )
 
             raw = dict(draft)
             raw.update(
@@ -291,12 +320,10 @@ class ProjectSafeSessionStore:
             raw["record_hash"] = _record_hash(raw)
             record = JournalRecord.from_dict(raw)
 
-            # One action_seq belongs to exactly one action_id.
-            for previous in records:
-                if previous.action_seq == record.action_seq and previous.action_id != record.action_id:
-                    raise JournalCorruptionError("action_seq is already bound to another action_id")
-            if same_action and any(previous.action_seq != record.action_seq for previous in same_action):
-                raise JournalCorruptionError("action_id changed action_seq")
+            try:
+                validate_action_record(record, same_action)
+            except ActionContractError as exc:
+                raise StorageError(f"invalid action transition: {exc}") from exc
 
             _durable_append(
                 self.actions_path,
