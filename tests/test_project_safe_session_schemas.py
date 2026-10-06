@@ -132,7 +132,7 @@ def _journal(*, state: str = "PREPARED", effect: str = "NONE", reason=None) -> d
         "risk": "dangerous",
         "input": {
             "args_hash": SHA256_A,
-            "payload_ref": "actions/example/input.json",
+            "payload_ref": f"actions/{SHA256_A}/input.json",
             "payload_sha256": SHA256_B,
             "summary": {"path": "src/foo.py", "op": "edit"},
         },
@@ -267,7 +267,7 @@ def test_file_resource_before_rejects_parent_traversal():
         "content_sha256": None,
     }
 
-    with pytest.raises(SchemaError, match="safe relative path"):
+    with pytest.raises(SchemaError, match="relative path"):
         FileResourceBefore.from_dict(raw)
 
 
@@ -342,4 +342,34 @@ def test_checkpoint_rejects_duplicate_resource_paths():
     raw["resources"].append(dict(raw["resources"][0]))
 
     with pytest.raises(SchemaError, match="duplicate paths"):
+        CheckpointManifest.from_dict(raw)
+
+
+def test_journal_payload_ref_is_bound_to_action_id():
+    raw = _journal()
+    raw["input"]["payload_ref"] = f"actions/{SHA256_B}/input.json"
+
+    with pytest.raises(SchemaError, match="payload_ref must be"):
+        JournalRecord.from_dict(raw)
+
+
+def test_journal_chain_shape_requires_previous_hash_after_first_record():
+    raw = _journal()
+    raw["journal_seq"] = 2
+
+    with pytest.raises(SchemaError, match="requires previous_record_hash"):
+        JournalRecord.from_dict(raw)
+
+    raw = _journal()
+    raw["previous_record_hash"] = SHA256_B
+
+    with pytest.raises(SchemaError, match="requires previous_record_hash=null"):
+        JournalRecord.from_dict(raw)
+
+
+def test_checkpoint_backup_ref_is_content_addressed():
+    raw = _checkpoint()
+    raw["resources"][0]["backup_ref"] = "files/wrong.bin"
+
+    with pytest.raises(SchemaError, match="content-addressed"):
         CheckpointManifest.from_dict(raw)
