@@ -47,8 +47,9 @@ def test_search_does_not_follow_file_symlink_outside_workspace(tmp_path, monkeyp
     )
     assert result is not None
     text = _text(result)
-    assert "outside-marker" not in text
     assert "No matches found" in text
+    assert str(secret) not in text
+    assert "leak.txt" not in text
 
 
 def test_tree_does_not_follow_directory_symlink_outside_workspace(tmp_path, monkeypatch):
