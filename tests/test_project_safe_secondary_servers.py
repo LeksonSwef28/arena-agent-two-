@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 from pathlib import Path
@@ -137,3 +138,53 @@ def test_standalone_dispatchers_fail_closed_even_if_called_directly(monkeypatch)
     assert rpc_result is not None
     assert rpc_result.get("error")
     assert "standalone MCP dispatcher" in str(rpc_result["error"])
+
+
+
+def test_grpc_loop_refuses_before_application_setup(monkeypatch):
+    monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
+
+    def forbidden_app(*_args, **_kwargs):
+        raise AssertionError("gRPC loop created an aiohttp application")
+
+    monkeypatch.setattr(grpc_runtime.web, "Application", forbidden_app)
+
+    with pytest.raises(RuntimeError, match="disabled"):
+        asyncio.run(grpc_runtime.grpc_server_loop({"port": 8765, "token": "x"}))
+
+
+def test_web_gateway_handler_refuses_even_if_hosted_manually(monkeypatch):
+    monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
+    mod = _load_script("bin/web_gateway.py", "project_safe_web_gateway_handler_test")
+    captured = {}
+
+    class Dummy:
+        path = "/run"
+
+        def _json(self, obj, code=200):
+            captured["obj"] = obj
+            captured["code"] = code
+            return (obj, code)
+
+    result = mod.H.do_POST(Dummy())
+    assert result[1] == 403
+    assert captured["code"] == 403
+    assert "disabled" in captured["obj"]["error"]
+
+
+def test_input_helper_auth_refuses_project_safe_before_token_check(monkeypatch):
+    monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
+    captured = {"status": None, "body": b""}
+
+    class Writer:
+        def write(self, data):
+            captured["body"] += data
+
+    dummy = object.__new__(helper_server.InputHandler)
+    dummy.wfile = Writer()
+    dummy.send_response = lambda code: captured.__setitem__("status", code)
+    dummy.end_headers = lambda: None
+
+    assert helper_server.InputHandler._check_auth(dummy) is False
+    assert captured["status"] == 503
+    assert b"PROJECT-SAFE" in captured["body"]
