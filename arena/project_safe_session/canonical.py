@@ -21,4 +21,21 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
-__all__ = ["canonical_json_bytes", "canonical_sha256"]
+def strict_json_loads(raw: str | bytes | bytearray) -> Any:
+    """Parse JSON while rejecting duplicate keys and non-standard constants."""
+
+    def object_pairs(pairs):
+        out = {}
+        for key, value in pairs:
+            if key in out:
+                raise ValueError(f"duplicate JSON key: {key!r}")
+            out[key] = value
+        return out
+
+    def reject_constant(value: str):
+        raise ValueError(f"non-finite JSON constant is not allowed: {value}")
+
+    return json.loads(raw, object_pairs_hook=object_pairs, parse_constant=reject_constant)
+
+
+__all__ = ["canonical_json_bytes", "canonical_sha256", "strict_json_loads"]
