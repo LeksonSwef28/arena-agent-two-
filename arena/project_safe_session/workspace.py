@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.mcp.git_safe import run_project_safe_git
-from arena.mcp.project_boundary import resolve_workspace_path, workspace_root
-from arena.project_safe import project_safe_enabled
+from arena.mcp.project_boundary import resolve_project_safe_path
 
 from .action_models import FileResourceBefore
 from .canonical import canonical_sha256
@@ -102,24 +101,6 @@ class WorkspaceManifest:
         return canonical_sha256(self.to_dict())
 
 
-class _RootContext:
-    """Minimal adapter that lets CAS reuse the exact P0 path boundary."""
-
-    def __init__(self, root: Path) -> None:
-        self._root = root
-
-    def app_config(self) -> dict[str, str]:
-        return {"root": str(self._root)}
-
-    @staticmethod
-    def under_root(candidate: Path, root: Path) -> bool:
-        try:
-            candidate.relative_to(root)
-            return True
-        except ValueError:
-            return False
-
-
 def _git(repo: Path, args: list[str], *, timeout: int = 30) -> bytes:
     code, stdout, stderr = run_project_safe_git(repo, args, timeout=timeout)
     if code != 0:
@@ -195,14 +176,19 @@ def _worktree_entry(root: Path, relative: str) -> WorktreeEntry:
             return WorktreeEntry(path=relative, state="SYMLINK", content_sha256=digest)
         if not path.exists():
             return WorktreeEntry(path=relative, state="DELETED", content_sha256=None)
-        if not path.is_file():
+        resolved, reason = resolve_project_safe_path(relative, root, for_write=False)
+        if reason or resolved is None:
+            raise UnsupportedRepoLayoutError(
+                f"workspace path is outside project-safe boundary: {relative}: {reason}"
+            )
+        if not resolved.is_file():
             raise UnsupportedRepoLayoutError(
                 f"workspace path changed to unsupported file type: {relative}"
             )
         return WorktreeEntry(
             path=relative,
             state="MODIFIED",
-            content_sha256=_hash_regular_file(path),
+            content_sha256=_hash_regular_file(resolved),
         )
     except OSError as exc:
         raise WorkspaceError(f"cannot hash workspace path {relative}: {exc}") from exc
@@ -243,6 +229,8 @@ def compute_workspace_manifest_once(
     status_raw = _git(
         root,
         [
+            "-c", "core.autocrlf=input",
+            "-c", "core.fileMode=false",
             "status", "--porcelain=v1", "-z", "--untracked-files=all",
             "--ignore-submodules=none", "--no-renames",
         ],
@@ -286,24 +274,12 @@ def assert_flow_workspace_guard(
     return manifest
 
 
-def _cas_context(project_root: str | os.PathLike[str]) -> tuple[Path, _RootContext]:
-    if not project_safe_enabled():
-        raise ResourceBoundaryError("resource CAS requires ARENA_PROJECT_SAFE=1")
-    root = Path(project_root).expanduser()
-    ctx = _RootContext(root)
-    try:
-        canonical = workspace_root(ctx)
-    except (ValueError, OSError, RuntimeError) as exc:
-        raise ResourceBoundaryError(str(exc)) from exc
-    return canonical, ctx
-
-
 def _resolve_resource(
     project_root: str | os.PathLike[str],
     relative_path: str,
 ) -> tuple[Path, Path]:
-    root, ctx = _cas_context(project_root)
-    resolved, reason = resolve_workspace_path(relative_path, ctx, for_write=True)
+    root = Path(project_root).expanduser().resolve(strict=True)
+    resolved, reason = resolve_project_safe_path(relative_path, root, for_write=True)
     if reason or resolved is None:
         raise ResourceBoundaryError(reason or "resource path is not allowed")
     return root, resolved
