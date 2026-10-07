@@ -233,3 +233,98 @@ def test_recovery_rejects_creation_snapshot_gaps(tmp_path, case, reason):
         assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
     finally:
         lease.release()
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"revision": True}, "EVENT_JOURNAL_CORRUPT"),
+    ({"revision": 1}, "EVENT_JOURNAL_CORRUPT"),
+    ({"revision": 3}, "EVENT_JOURNAL_CORRUPT"),
+    ({"from": "Wrong goal"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"to": "Inspect"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"to": None}, "EVENT_JOURNAL_CORRUPT"),
+    ({"to": "   "}, "EVENT_JOURNAL_CORRUPT"),
+    ({"to": "  New   goal "}, "EVENT_JOURNAL_CORRUPT"),
+    ({"reason": False}, "EVENT_JOURNAL_CORRUPT"),
+    ({"missing": "revision"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"extra": "unknown_field"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"to": "Other goal"}, "STATE_JOURNAL_MISMATCH"),
+    ({"event_type": "PHASE_CHANGED"}, "STATE_JOURNAL_MISMATCH"),
+])
+def test_recovery_rejects_rehashed_goal_evidence(tmp_path, change, reason):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        state = coordinator.refine_goal(state.session_id, new_goal="New goal", at=NOW2)
+        store = coordinator._store(state.session_id)
+        records = store.read_events().records
+        drafts = [{"event_type": event.event_type.value, "recorded_at": event.recorded_at,
+                   "data": dict(event.data)} for event in records]
+        for field, value in change.items():
+            if field == "event_type":
+                drafts[-1][field] = value
+            elif field == "missing":
+                drafts[-1]["data"].pop(value)
+            elif field == "extra":
+                drafts[-1]["data"][value] = "unexpected"
+            else:
+                drafts[-1]["data"][field] = value
+        store.events_path.write_bytes(b"")
+        for draft in drafts:
+            store.append_event(draft)
+        assert len(store.read_events().records) == state.execution.last_event_seq
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == reason
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("current", "Other goal"), ("revision", 3), ("last_changed_at", NOW3),
+    ("initial", "Different initial goal"), ("session_fingerprint", "a" * 64),
+])
+def test_recovery_rejects_goal_snapshot_mismatch(tmp_path, field, value):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        state = coordinator.refine_goal(state.session_id, new_goal="New goal", at=NOW2)
+        store = coordinator._store(state.session_id)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        if field == "session_fingerprint":
+            raw[field] = value
+        else:
+            raw["goal"][field] = value
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == "STATE_JOURNAL_MISMATCH"
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("case", ["consecutive", "noop", "interleaved"])
+def test_goal_replay_accepts_normal_refinement_history(tmp_path, case):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="  Inspect  ", requested_mode="read", at=NOW1)
+        if case == "noop":
+            assert coordinator.refine_goal(state.session_id, new_goal=" Inspect ", at=NOW2) == state
+        else:
+            state = coordinator.refine_goal(state.session_id, new_goal=" Cafe\u0301   inspect ", reason="", at=NOW2)
+            assert state.goal.current == "Café inspect"
+            if case == "interleaved":
+                coordinator.activate_session(state.session_id, at=NOW3)
+                coordinator.start_flow(state.session_id, at=NOW3)
+            state = coordinator.refine_goal(state.session_id, new_goal="Inspect", at=NOW4)
+            assert state.goal.revision == 3
+        store = coordinator._store(state.session_id)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assert ProjectSafeRecoveryManager(lease).assess(state.session_id).required is False
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()

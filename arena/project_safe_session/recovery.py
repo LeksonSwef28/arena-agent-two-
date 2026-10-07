@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from .coordinator import SessionCoordinatorError, normalize_goal_v1, session_fingerprint_v1
 from .event_models import SessionEventRecord
 from .lease import ProjectLease
 from .models import StateSnapshot
@@ -16,7 +17,7 @@ from .schema_types import (
     RecoveryReason,
     RequestedMode,
 )
-from .schema_utils import SchemaError, boolean_value, enum_value, exact_keys, integer_value, sha256_value
+from .schema_utils import SchemaError, boolean_value, enum_value, exact_keys, integer_value, sha256_value, string_value
 from .storage import (
     CheckpointIntegrityError,
     JournalCorruptionError,
@@ -84,6 +85,51 @@ def _session_creation_mismatch(
     ):
         if actual != expected:
             return f"SESSION_CREATED {field} disagrees with state/baseline"
+    return None
+
+
+def _goal_history_mismatch(
+    state: StateSnapshot,
+    events: tuple[SessionEventRecord, ...],
+) -> str | None:
+    try:
+        initial = normalize_goal_v1(state.goal.initial)
+    except SessionCoordinatorError:
+        return "goal.initial is not a valid normalized goal"
+    if initial != state.goal.initial:
+        return "goal.initial is not normalized"
+    if state.session_fingerprint != session_fingerprint_v1(state.project_fingerprint, initial):
+        return "goal.initial disagrees with session_fingerprint"
+
+    current, revision, changed_at = initial, 1, state.created_at
+    for event in events:
+        if event.event_type is not EventType.GOAL_REFINED:
+            continue
+        data = event.data
+        exact_keys(data, {"from", "to", "revision", "reason"}, "GOAL_REFINED.data")
+        previous = string_value(data["from"], "GOAL_REFINED.from")
+        target = string_value(data["to"], "GOAL_REFINED.to")
+        next_revision = integer_value(data["revision"], "GOAL_REFINED.revision", minimum=2)
+        string_value(data["reason"], "GOAL_REFINED.reason", empty=True)
+        try:
+            normalized = normalize_goal_v1(target)
+        except SessionCoordinatorError as exc:
+            raise SchemaError(f"GOAL_REFINED.to is invalid: {exc}") from exc
+        if target != normalized:
+            raise SchemaError("GOAL_REFINED.to must be normalized")
+        if previous != current or next_revision != revision + 1:
+            raise SchemaError(f"GOAL_REFINED chain is discontinuous at event_seq={event.event_seq}")
+        if target == current:
+            raise SchemaError("GOAL_REFINED must change the current goal")
+        current, revision, changed_at = target, next_revision, event.recorded_at
+
+    for field, actual, expected in (
+        ("current", state.goal.current, current),
+        ("revision", state.goal.revision, revision),
+        ("last_changed_at", state.goal.last_changed_at, changed_at),
+    ):
+        if actual != expected:
+            return f"goal.{field} disagrees with GOAL_REFINED history"
     return None
 
 
@@ -195,6 +241,13 @@ class ProjectSafeRecoveryManager:
             return self._assessment(RecoveryReason.EVENT_JOURNAL_CORRUPT, str(exc))
         if creation_mismatch is not None:
             return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, creation_mismatch)
+
+        try:
+            goal_mismatch = _goal_history_mismatch(state, events)
+        except SchemaError as exc:
+            return self._assessment(RecoveryReason.EVENT_JOURNAL_CORRUPT, str(exc))
+        if goal_mismatch is not None:
+            return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, goal_mismatch)
 
         checkpoint_ids = {
             state.workspace.session_baseline.checkpoint_id,
