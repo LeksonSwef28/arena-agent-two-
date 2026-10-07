@@ -48,6 +48,18 @@ def action_flow_mismatch(
     ):
         return "last-verified checkpoint is not RESOURCE_AFTER for the latest SUCCEEDED action"
 
+    if latest_success is not None:
+        # Only this suffix has known output evidence. Earlier successes need
+        # their own action-to-checkpoint contract, not the final output digest.
+        for record in actions:
+            if (
+                record.journal_seq > latest_success.journal_seq
+                and record.flow_id == latest_success.flow_id
+                and record.state is ActionState.PREPARED
+                and record.workspace_digest_context != last_verified.workspace_digest
+            ):
+                return "PREPARED workspace context differs from last verified digest after latest SUCCEEDED"
+
     flow = state.active_flow
     if flow is not None:
         expected = flow.workspace_digest_baseline

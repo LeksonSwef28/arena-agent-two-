@@ -234,3 +234,86 @@ def test_action_flow_evidence_rejects_other_flow_latest_verification(action_flow
     result = _assess_without_writes(lease, coordinator, state.session_id)
     assert result.required is True
     assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+@pytest.mark.parametrize("last", ["FAILED", "ABANDONED", "PREPARED"])
+@pytest.mark.parametrize("changed", [False, True])
+def test_post_success_context_rejects_forged_context(action_flow_session, last, changed):
+    repo, lease, coordinator, state, store = action_flow_session
+    state, action_id = _append_action(store, state, last="SUCCEEDED")
+    if changed:
+        (repo / "foo.py").write_text("foo = 2\n", encoding="utf-8", newline="")
+    checkpoint = _checkpoint(store, state, repo, action_id)
+    state = _publish_verified(store, state, checkpoint)
+    state, _ = _append_action(store, state, last=last, target="d" * 64, context="e" * 64)
+    if last == "PREPARED":
+        raw = state.to_dict()
+        raw["active_flow"]["workspace_digest_expected_current"] = "e" * 64
+        state = _write_state(store, state, raw)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.required is True
+    assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+@pytest.mark.parametrize("last", ["FAILED", "ABANDONED", "PREPARED"])
+@pytest.mark.parametrize("changed", [False, True])
+def test_post_success_context_accepts_verified_context(action_flow_session, last, changed):
+    repo, lease, coordinator, state, store = action_flow_session
+    state, action_id = _append_action(store, state, last="SUCCEEDED")
+    if changed:
+        (repo / "foo.py").write_text("foo = 2\n", encoding="utf-8", newline="")
+    checkpoint = _checkpoint(store, state, repo, action_id)
+    state = _publish_verified(store, state, checkpoint)
+    state, _ = _append_action(store, state, last=last, target="d" * 64)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    if last == "PREPARED":
+        assert result.required is True
+        assert result.reason.value == "INTERRUPTED_ACTION"
+    else:
+        assert result.required is False
+
+
+def test_post_success_context_preserves_intermediate_checkpoint_gap(action_flow_session):
+    repo, lease, coordinator, state, store = action_flow_session
+    state, _ = _append_action(store, state, last="SUCCEEDED")
+    # The second success changes the final digest; its input is not the final output.
+    state, second = _append_action(store, state, last="SUCCEEDED", target="d" * 64,
+                                   context="e" * 64)
+    (repo / "foo.py").write_text("foo = 2\n", encoding="utf-8", newline="")
+    state = _publish_verified(store, state, _checkpoint(store, state, repo, second))
+    assert len(list(store.checkpoints_dir.glob("*/manifest.json"))) == 2
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.required is False  # Intermediate evidence is a separate open contract.
+
+
+def test_post_success_context_accepts_closed_flow_tail(action_flow_session):
+    repo, lease, coordinator, state, store = action_flow_session
+    state, action_id = _append_action(store, state, last="SUCCEEDED")
+    state = _publish_verified(store, state, _checkpoint(store, state, repo, action_id))
+    state, _ = _append_action(store, state, last="FAILED", target="d" * 64)
+    coordinator.close_flow(state.session_id, at=NOW4)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.required is False
+
+
+@pytest.mark.parametrize("last", ["FAILED", "PREPARED"])
+def test_post_success_context_accepts_fresh_flow_baseline(action_flow_session, last):
+    repo, lease, coordinator, state, store = action_flow_session
+    state, action_id = _append_action(store, state, last="SUCCEEDED")
+    (repo / "foo.py").write_text("foo = 2\n", encoding="utf-8", newline="")
+    checkpoint = _checkpoint(store, state, repo, action_id)
+    state = _publish_verified(store, state, checkpoint)
+    old_flow_id = state.active_flow.flow_id
+    coordinator.close_flow(state.session_id, at=NOW4)
+    _git(repo, "add", "foo.py")
+    _git(repo, "commit", "-m", "retain verified result")
+    state = coordinator.start_flow(state.session_id, at=NOW4)
+    assert state.active_flow.flow_id != old_flow_id
+    assert state.active_flow.workspace_digest_baseline != checkpoint.workspace_digest
+    state, _ = _append_action(store, state, last=last, target="d" * 64)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    if last == "PREPARED":
+        assert result.required is True
+        assert result.reason.value == "INTERRUPTED_ACTION"
+    else:
+        assert result.required is False
