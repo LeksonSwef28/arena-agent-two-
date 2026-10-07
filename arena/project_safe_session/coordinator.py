@@ -19,7 +19,7 @@ from .models import StateSnapshot
 from .paths import project_fingerprint
 from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import BrowserRole, LifecycleStatus, RequestedMode
-from .storage import ProjectSafeSessionStore
+from .storage import ProjectSafeSessionStore, StateRevisionError
 from .workspace import (
     compute_workspace_digest_v1,
     workspace_is_clean_v1,
@@ -149,11 +149,17 @@ class ProjectSafeSessionCoordinator:
         session = session_id or str(uuid.uuid4())
         timestamp = at or _now()
 
+        store = self._store(session)
+        current = store.read_state()
+        if current is not None:
+            raise StateRevisionError(
+                f"state revision changed: expected 0, found {current.state_revision}"
+            )
+
         manifest, digest = compute_workspace_digest_v1(self.project_root)
         clean = workspace_is_clean_v1(self.project_root)
         checkpoint_id = str(uuid.uuid4())
 
-        store = self._store(session)
         baseline_checkpoint = build_checkpoint_manifest(
             checkpoint_id=checkpoint_id,
             session_id=session,

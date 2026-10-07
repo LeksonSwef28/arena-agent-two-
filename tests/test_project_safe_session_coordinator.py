@@ -16,6 +16,7 @@ from arena.project_safe_session import (
     normalize_goal_v1,
     session_fingerprint_v1,
 )
+from arena.project_safe_session.storage import StateRevisionError, StorageError
 from arena.project_safe_session.workspace import WorkspaceError, WorkspaceUnstableError
 
 NOW1 = "2026-10-07T03:20:00Z"
@@ -391,5 +392,65 @@ def test_failed_resume_does_not_block_another_session(tmp_path: Path, monkeypatc
             coordinator.registry.path.read_bytes(), first_store.state_path.read_bytes(),
             first_store.events_path.read_bytes(),
         )
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("status", ["CREATED", "ACTIVE", "PAUSED"])
+def test_duplicate_create_has_no_durable_side_effects(tmp_path: Path, status):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        created = coordinator.create_session(goal="Original", requested_mode="write", at=NOW1)
+        if status != "CREATED":
+            coordinator.activate_session(created.session_id, at=NOW2)
+            coordinator.start_flow(created.session_id, at=NOW3)
+        if status == "PAUSED":
+            coordinator.pause_session(created.session_id, at=NOW4)
+        store = coordinator._store(created.session_id)
+        state_before = coordinator.read_session(created.session_id)
+        registry_before = coordinator.registry.path.read_bytes()
+        files_before = {
+            path.relative_to(store.session_dir): path.read_bytes()
+            for path in store.session_dir.rglob("*") if path.is_file()
+        }
+
+        with pytest.raises(StateRevisionError):
+            coordinator.create_session(
+                goal="Replacement", requested_mode="read", required_roles=["MAIN_GPT"],
+                session_id=created.session_id, at=NOW4,
+            )
+
+        assert files_before == {
+            path.relative_to(store.session_dir): path.read_bytes()
+            for path in store.session_dir.rglob("*") if path.is_file()
+        }
+        assert coordinator.registry.path.read_bytes() == registry_before
+        assert coordinator.read_session(created.session_id) == state_before
+        assert len(store.read_events().records) == state_before.execution.last_event_seq
+    finally:
+        lease.release()
+
+
+def test_create_with_corrupt_existing_state_fails_before_publication(tmp_path: Path):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        created = coordinator.create_session(goal="Original", requested_mode="read", at=NOW1)
+        store = coordinator._store(created.session_id)
+        store.state_path.write_bytes(b"{invalid state")
+        files_before = {
+            path.relative_to(store.session_dir): path.read_bytes()
+            for path in store.session_dir.rglob("*") if path.is_file()
+        }
+        registry_before = coordinator.registry.path.read_bytes()
+        with pytest.raises(StorageError, match="invalid state.json"):
+            coordinator.create_session(
+                goal="Replacement", requested_mode="read",
+                session_id=created.session_id, at=NOW2,
+            )
+        assert files_before == {
+            path.relative_to(store.session_dir): path.read_bytes()
+            for path in store.session_dir.rglob("*") if path.is_file()
+        }
+        assert coordinator.registry.path.read_bytes() == registry_before
     finally:
         lease.release()
