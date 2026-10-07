@@ -21,7 +21,6 @@ from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import BrowserRole, LifecycleStatus, RequestedMode
 from .storage import ProjectSafeSessionStore
 from .workspace import (
-    WorkspaceEvidence,
     compute_workspace_digest_v1,
     workspace_is_clean_v1,
 )

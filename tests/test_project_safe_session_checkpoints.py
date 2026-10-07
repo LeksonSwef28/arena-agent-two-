@@ -178,14 +178,14 @@ def test_fault_before_manifest_leaves_unpublished_checkpoint(tmp_path: Path, mon
     project, lease, store = _store(tmp_path)
     try:
         manifest, backups = _manifest(store, project, b"before")
-        original = storage_module._durable_replace
+        original = storage_module.durable_replace
 
         def fail_manifest(path: Path, data: bytes):
             if path.name == "manifest.json":
                 raise OSError("simulated crash before publication")
             return original(path, data)
 
-        monkeypatch.setattr(storage_module, "_durable_replace", fail_manifest)
+        monkeypatch.setattr(storage_module, "durable_replace", fail_manifest)
         with pytest.raises(OSError, match="simulated crash"):
             store.write_checkpoint(manifest, backups)
 
