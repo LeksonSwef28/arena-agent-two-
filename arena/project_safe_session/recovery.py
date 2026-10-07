@@ -21,7 +21,7 @@ from .storage import (
     StorageError,
     TruncatedLastRecordError,
 )
-from .workspace import WorkspaceEvidenceError, compute_workspace_digest_v1
+from .workspace import WorkspaceError, compute_workspace_digest_v1
 
 
 @dataclass(frozen=True)
@@ -279,7 +279,7 @@ class ProjectSafeRecoveryManager:
         ):
             try:
                 _, current_digest = compute_workspace_digest_v1(self.lease.project_root)
-            except WorkspaceEvidenceError as exc:
+            except WorkspaceError as exc:
                 return self._assessment(
                     RecoveryReason.WORKSPACE_DRIFT,
                     f"workspace evidence cannot be stabilized: {exc}",
