@@ -7,6 +7,7 @@ from typing import Any
 
 from .coordinator import SessionCoordinatorError, normalize_goal_v1, session_fingerprint_v1
 from .event_models import SessionEventRecord
+from .flow_evidence import flow_history_mismatch
 from .lease import ProjectLease
 from .models import StateSnapshot
 from .registry import ProjectRegistryStore, RegistryError
@@ -248,6 +249,13 @@ class ProjectSafeRecoveryManager:
             return self._assessment(RecoveryReason.EVENT_JOURNAL_CORRUPT, str(exc))
         if goal_mismatch is not None:
             return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, goal_mismatch)
+
+        try:
+            flow_mismatch = flow_history_mismatch(state, events)
+        except SchemaError as exc:
+            return self._assessment(RecoveryReason.EVENT_JOURNAL_CORRUPT, str(exc))
+        if flow_mismatch is not None:
+            return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, flow_mismatch)
 
         checkpoint_ids = {
             state.workspace.session_baseline.checkpoint_id,

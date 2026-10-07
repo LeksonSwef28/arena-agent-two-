@@ -1,10 +1,13 @@
 """T73: import and minimal fail-closed project-safe recovery regressions."""
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 import arena.project_safe_session.recovery as recovery_module
 from arena.project_safe_session import StateSnapshot
+from arena.project_safe_session.flow_evidence import flow_history_mismatch
 from arena.project_safe_session.recovery import (
     ProjectSafeRecoveryManager,
     RecoveryOperationError,
@@ -326,5 +329,166 @@ def test_goal_replay_accepts_normal_refinement_history(tmp_path, case):
         before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
         assert ProjectSafeRecoveryManager(lease).assess(state.session_id).required is False
         assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"flow_id": "invalid"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"goal_revision": True}, "EVENT_JOURNAL_CORRUPT"),
+    ({"goal_revision": 2}, "EVENT_JOURNAL_CORRUPT"),
+    ({"workspace_digest_expected_current": "a" * 64}, "EVENT_JOURNAL_CORRUPT"),
+    ({"workspace_digest_baseline": "a" * 64, "workspace_digest_expected_current": "a" * 64}, "STATE_JOURNAL_MISMATCH"),
+    ({"workspace_clean": 1}, "EVENT_JOURNAL_CORRUPT"),
+    ({"workspace_clean": False}, "EVENT_JOURNAL_CORRUPT"),
+    ({"head_sha": "invalid"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"recorded_at": NOW4}, "STATE_JOURNAL_MISMATCH"),
+    ({"missing": "head_sha"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"extra": "unknown_field"}, "EVENT_JOURNAL_CORRUPT"),
+])
+def test_recovery_rejects_rehashed_flow_creation(tmp_path, change, reason):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="write", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        store = coordinator._store(state.session_id)
+        drafts = [{"event_type": event.event_type.value, "recorded_at": event.recorded_at,
+                   "data": dict(event.data)} for event in store.read_events().records]
+        for field, value in change.items():
+            if field == "recorded_at":
+                drafts[-1][field] = value
+            elif field == "missing":
+                drafts[-1]["data"].pop(value)
+            elif field == "extra":
+                drafts[-1]["data"][value] = "unexpected"
+            else:
+                drafts[-1]["data"][field] = value
+        store.events_path.write_bytes(b"")
+        for draft in drafts:
+            store.append_event(draft)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == reason
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("flow_id", None),
+    ("workspace_digest_baseline", "a" * 64), ("created_at", NOW4),
+])
+def test_recovery_rejects_immutable_flow_snapshot_mismatch(tmp_path, field, value):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        store = coordinator._store(state.session_id)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["active_flow"][field] = str(uuid.uuid4()) if field == "flow_id" else value
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == "STATE_JOURNAL_MISMATCH"
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("case,reason", [
+    ("overlap", "EVENT_JOURNAL_CORRUPT"), ("reused_id", "EVENT_JOURNAL_CORRUPT"),
+    ("wrong_close", "EVENT_JOURNAL_CORRUPT"), ("duplicate_close", "EVENT_JOURNAL_CORRUPT"),
+    ("invalid_close_reason", "EVENT_JOURNAL_CORRUPT"),
+    ("missing_create", "STATE_JOURNAL_MISMATCH"), ("missing_close", "STATE_JOURNAL_MISMATCH"),
+    ("goal_without_close", "EVENT_JOURNAL_CORRUPT"),
+])
+def test_recovery_rejects_inconsistent_flow_lineage(tmp_path, case, reason):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        first_id = state.active_flow.flow_id
+        if case in {"reused_id", "wrong_close", "duplicate_close", "invalid_close_reason", "missing_close"}:
+            state = coordinator.close_flow(state.session_id, at=NOW4)
+        if case == "reused_id":
+            state = coordinator.start_flow(state.session_id, at=NOW4)
+        elif case == "goal_without_close":
+            state = coordinator.refine_goal(state.session_id, new_goal="New goal", at=NOW4)
+        store = coordinator._store(state.session_id)
+        drafts = [{"event_type": event.event_type.value, "recorded_at": event.recorded_at,
+                   "data": dict(event.data)} for event in store.read_events().records]
+        if case in {"overlap", "duplicate_close"}:
+            drafts.append(dict(drafts[-1]))
+        elif case == "reused_id":
+            drafts[-1]["data"]["flow_id"] = first_id
+        elif case == "wrong_close":
+            drafts[-1]["data"]["flow_id"] = str(uuid.uuid4())
+        elif case == "invalid_close_reason":
+            drafts[-1]["data"]["reason"] = False
+        elif case == "goal_without_close":
+            drafts[-2]["event_type"] = "PHASE_CHANGED"
+        else:
+            drafts[-1]["event_type"] = "PHASE_CHANGED"
+        store.events_path.write_bytes(b"")
+        for draft in drafts:
+            store.append_event(draft)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["execution"]["last_event_seq"] = len(drafts)
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == reason
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("case", ["open", "closed", "paused", "refined", "two_flows", "dirty_read"])
+def test_flow_replay_accepts_normal_lifecycle(tmp_path, case):
+    repo, lease, coordinator = _coordinator(tmp_path)
+    try:
+        if case == "dirty_read":
+            (repo / "user-note.txt").write_text("user change", encoding="utf-8")
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        coordinator.start_flow(state.session_id, at=NOW3)
+        if case in {"closed", "two_flows"}:
+            coordinator.close_flow(state.session_id, reason="", at=NOW4)
+        if case == "two_flows":
+            coordinator.start_flow(state.session_id, at=NOW4)
+        elif case == "paused":
+            coordinator.pause_session(state.session_id, at=NOW4)
+        elif case == "refined":
+            coordinator.refine_goal(state.session_id, new_goal="New goal", at=NOW4)
+        store = coordinator._store(state.session_id)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assert ProjectSafeRecoveryManager(lease).assess(state.session_id).required is False
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+
+def test_flow_evidence_allows_mutable_expected_digest_progression(tmp_path):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        store = coordinator._store(state.session_id)
+        raw = state.to_dict()
+        raw["active_flow"]["workspace_digest_expected_current"] = "a" * 64
+        # Action/workspace evidence owns this mutable field; this guard owns flow lineage.
+        assert flow_history_mismatch(
+            StateSnapshot.from_dict(raw), store.read_events().records,
+        ) is None
     finally:
         lease.release()
