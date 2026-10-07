@@ -5,14 +5,18 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from .event_models import SessionEventRecord
 from .lease import ProjectLease
 from .models import StateSnapshot
 from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import (
     ActionState,
+    EventType,
     LifecycleStatus,
     RecoveryReason,
+    RequestedMode,
 )
+from .schema_utils import SchemaError, boolean_value, enum_value, exact_keys, integer_value, sha256_value
 from .storage import (
     CheckpointIntegrityError,
     JournalCorruptionError,
@@ -46,6 +50,41 @@ _TERMINAL_ACTION_STATES = {
     ActionState.FAILED,
     ActionState.ABANDONED,
 }
+
+
+def _session_creation_mismatch(
+    state: StateSnapshot,
+    events: tuple[SessionEventRecord, ...],
+) -> str | None:
+    if (
+        not events
+        or events[0].event_type is not EventType.SESSION_CREATED
+        or sum(event.event_type is EventType.SESSION_CREATED for event in events) != 1
+    ):
+        raise SchemaError("events require exactly one SESSION_CREATED as the first record")
+    creation = events[0]
+    data = creation.data
+    exact_keys(
+        data,
+        {"goal_revision", "requested_mode", "workspace_digest", "workspace_clean"},
+        "SESSION_CREATED.data",
+    )
+    if integer_value(data["goal_revision"], "SESSION_CREATED.goal_revision", minimum=1) != 1:
+        raise SchemaError("SESSION_CREATED.goal_revision must be 1")
+    mode = enum_value(RequestedMode, data["requested_mode"], "SESSION_CREATED.requested_mode")
+    digest = sha256_value(data["workspace_digest"], "SESSION_CREATED.workspace_digest")
+    clean = boolean_value(data["workspace_clean"], "SESSION_CREATED.workspace_clean")
+    baseline = state.workspace.session_baseline
+    for field, actual, expected in (
+        ("requested_mode", mode, state.project.requested_mode),
+        ("workspace_digest", digest, baseline.workspace_digest),
+        ("workspace_clean", clean, baseline.clean),
+        ("recorded_at", creation.recorded_at, state.created_at),
+        ("baseline.captured_at", creation.recorded_at, baseline.captured_at),
+    ):
+        if actual != expected:
+            return f"SESSION_CREATED {field} disagrees with state/baseline"
+    return None
 
 
 class ProjectSafeRecoveryManager:
@@ -149,6 +188,13 @@ class ProjectSafeRecoveryManager:
                 f"state last_event_seq={state.execution.last_event_seq}, "
                 f"events journal={len(events)}",
             )
+
+        try:
+            creation_mismatch = _session_creation_mismatch(state, events)
+        except SchemaError as exc:
+            return self._assessment(RecoveryReason.EVENT_JOURNAL_CORRUPT, str(exc))
+        if creation_mismatch is not None:
+            return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, creation_mismatch)
 
         checkpoint_ids = {
             state.workspace.session_baseline.checkpoint_id,

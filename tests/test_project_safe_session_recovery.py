@@ -115,3 +115,121 @@ def test_recovery_requires_live_lease_for_construction_and_later_reads(tmp_path)
         ProjectSafeRecoveryManager(lease)
     with pytest.raises(LeaseRequiredError, match="live ProjectLease"):
         manager.assess(state.session_id)
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"event_type": "PHASE_CHANGED"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"goal_revision": True}, "EVENT_JOURNAL_CORRUPT"),
+    ({"goal_revision": 2}, "EVENT_JOURNAL_CORRUPT"),
+    ({"requested_mode": "invalid"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"missing": "workspace_digest"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"extra": "unknown_field"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"requested_mode": "write"}, "STATE_JOURNAL_MISMATCH"),
+    ({"workspace_digest": "a" * 64}, "STATE_JOURNAL_MISMATCH"),
+    ({"workspace_clean": False}, "STATE_JOURNAL_MISMATCH"),
+    ({"recorded_at": NOW2}, "STATE_JOURNAL_MISMATCH"),
+])
+def test_recovery_rejects_rehashed_creation_evidence_without_writes(tmp_path, change, reason):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        store = coordinator._store(state.session_id)
+        event = store.read_events().records[0]
+        draft = {
+            "event_type": event.event_type.value, "recorded_at": event.recorded_at,
+            "data": dict(event.data),
+        }
+        for field, value in change.items():
+            if field in {"event_type", "recorded_at"}:
+                draft[field] = value
+            elif field == "missing":
+                draft["data"].pop(value)
+            elif field == "extra":
+                draft["data"][value] = "unexpected"
+            else:
+                draft["data"][field] = value
+        # Republish through the real writer so count, sequence and hashes are valid.
+        store.events_path.write_bytes(b"")
+        store.append_event(draft)
+        assert len(store.read_events().records) == state.execution.last_event_seq
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+
+        assert assessment.required is True
+        assert assessment.reason.value == reason
+        assert "SESSION_CREATED" in assessment.message
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+def test_recovery_rejects_duplicate_creation_even_when_event_count_matches(tmp_path):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        store = coordinator._store(state.session_id)
+        first = store.read_events().records[0]
+        event = store.append_event({
+            "event_type": "SESSION_CREATED", "recorded_at": NOW2, "data": dict(first.data),
+        })
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["execution"]["last_event_seq"] = event.event_seq
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+
+        assert assessment.required is True
+        assert assessment.reason.value == "EVENT_JOURNAL_CORRUPT"
+        assert "SESSION_CREATED" in assessment.message
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("transition", ["ACTIVE", "PAUSED", "REFINED"])
+def test_creation_evidence_remains_valid_after_normal_transitions(tmp_path, transition):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        coordinator.start_flow(state.session_id, at=NOW3)
+        if transition == "PAUSED":
+            coordinator.pause_session(state.session_id, at=NOW4)
+        elif transition == "REFINED":
+            coordinator.refine_goal(state.session_id, new_goal="Inspect again", at=NOW4)
+        store = coordinator._store(state.session_id)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assert ProjectSafeRecoveryManager(lease).assess(state.session_id).required is False
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("case,reason", [
+    ("missing_creation", "EVENT_JOURNAL_CORRUPT"),
+    ("baseline_timestamp", "STATE_JOURNAL_MISMATCH"),
+])
+def test_recovery_rejects_creation_snapshot_gaps(tmp_path, case, reason):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        store = coordinator._store(state.session_id)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        if case == "missing_creation":
+            store.events_path.write_bytes(b"")
+            raw["execution"]["last_event_seq"] = 0
+        else:
+            raw["workspace"]["session_baseline"]["captured_at"] = NOW2
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        before = (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+        assessment = ProjectSafeRecoveryManager(lease).assess(state.session_id)
+        assert assessment.required is True
+        assert assessment.reason.value == reason
+        assert "SESSION_CREATED" in assessment.message
+        assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), coordinator.registry.path.read_bytes())
+    finally:
+        lease.release()
