@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import uuid
 from pathlib import Path
 
@@ -11,13 +12,16 @@ import pytest
 import arena.project_safe_session.checkpointing as checkpointing_module
 import arena.project_safe_session.storage as storage_module
 from arena.project_safe_session import (
+    CheckpointContractError,
     CheckpointIntegrityError,
+    CheckpointManifest,
     FileResourceBefore,
     LeaseRequiredError,
     ProjectLease,
     ProjectSafeSessionStore,
     ResourceDriftError,
     build_checkpoint_manifest,
+    checkpoint_manifest_sha256,
     checkpoint_resource_from_file_before,
     create_file_resource_before_checkpoint,
     project_fingerprint,
@@ -298,3 +302,87 @@ def test_security_state_reads_fail_after_lease_release(tmp_path: Path):
         store.read_events()
     with pytest.raises(LeaseRequiredError):
         store.read_state()
+
+
+INVALID_SEMANTICS = [
+    ("SESSION_BASELINE", SHA_A, False, "must not have action_id"),
+    ("RESOURCE_BEFORE", None, False, "requires action_id"),
+    ("RESOURCE_AFTER", None, False, "requires action_id"),
+    ("RESOURCE_BEFORE", SHA_A, True, "requires at least one resource"),
+    ("RESOURCE_AFTER", SHA_A, True, "requires at least one resource"),
+]
+
+
+def test_checkpoint_copied_to_another_id_is_rejected(tmp_path: Path):
+    project, lease, store = _store(tmp_path)
+    try:
+        manifest, backups = _manifest(store, project, b"before")
+        store.write_checkpoint(manifest, backups)
+        other_id = _uuid()
+        shutil.copytree(
+            store.checkpoints_dir / manifest.checkpoint_id,
+            store.checkpoints_dir / other_id,
+        )
+        with pytest.raises(CheckpointIntegrityError, match="checkpoint_id"):
+            store.read_checkpoint(other_id)
+        assert store.read_checkpoint(manifest.checkpoint_id) == manifest
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("kind,action_id,empty_resources,message", INVALID_SEMANTICS)
+def test_rehashed_semantically_invalid_checkpoint_is_rejected(
+    tmp_path: Path, kind, action_id, empty_resources, message,
+):
+    project, lease, store = _store(tmp_path)
+    try:
+        manifest, backups = _manifest(store, project, b"before")
+        store.write_checkpoint(manifest, backups)
+        raw = manifest.to_dict()
+        raw.update(kind=kind, action_id=action_id)
+        if empty_resources:
+            raw["resources"] = []
+        raw["manifest_sha256"] = checkpoint_manifest_sha256(raw)
+        path = store.checkpoints_dir / manifest.checkpoint_id / "manifest.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            CheckpointManifest.from_dict(raw)
+        with pytest.raises(CheckpointIntegrityError, match=message):
+            store.read_checkpoint(manifest.checkpoint_id)
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("kind,action_id,empty_resources,message", INVALID_SEMANTICS)
+def test_builder_preserves_semantic_contract_errors(
+    tmp_path: Path, kind, action_id, empty_resources, message,
+):
+    project, lease, store = _store(tmp_path)
+    try:
+        manifest, _ = _manifest(store, project, b"before")
+        with pytest.raises(CheckpointContractError, match=message):
+            build_checkpoint_manifest(
+                checkpoint_id=_uuid(), session_id=store.session_id,
+                action_id=action_id, kind=kind, created_at=NOW,
+                workspace_digest=SHA_B, head_sha=HEAD,
+                resources=[] if empty_resources else manifest.resources,
+            )
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("kind", ["SESSION_BASELINE", "RESOURCE_AFTER"])
+def test_other_valid_checkpoint_kinds_round_trip(tmp_path: Path, kind):
+    project, lease, store = _store(tmp_path)
+    try:
+        before, backups = _manifest(store, project, b"before")
+        manifest = build_checkpoint_manifest(
+            checkpoint_id=_uuid(), session_id=store.session_id,
+            action_id=None if kind == "SESSION_BASELINE" else SHA_A,
+            kind=kind, created_at=NOW, workspace_digest=SHA_B, head_sha=HEAD,
+            resources=[] if kind == "SESSION_BASELINE" else before.resources,
+        )
+        store.write_checkpoint(manifest, {} if kind == "SESSION_BASELINE" else backups)
+        assert store.read_checkpoint(manifest.checkpoint_id) == manifest
+    finally:
+        lease.release()

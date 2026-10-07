@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .schema_types import CheckpointKind, SCHEMA_VERSION
+from .schema_types import SCHEMA_VERSION, CheckpointKind
 from .schema_utils import (
     SchemaError,
     boolean_value,
@@ -102,12 +102,21 @@ class CheckpointManifest:
         paths = [item.canonical_relative_path for item in resources]
         if len(paths) != len(set(paths)):
             raise SchemaError("checkpoint.resources contains duplicate paths")
+        kind = enum_value(CheckpointKind, obj["kind"], "checkpoint.kind")
+        action_id = sha256_value(obj["action_id"], "checkpoint.action_id", optional=True)
+        if kind is CheckpointKind.SESSION_BASELINE and action_id is not None:
+            raise SchemaError("SESSION_BASELINE checkpoint must not have action_id")
+        if kind in {CheckpointKind.RESOURCE_BEFORE, CheckpointKind.RESOURCE_AFTER}:
+            if action_id is None:
+                raise SchemaError(f"{kind.value} checkpoint requires action_id")
+            if not resources:
+                raise SchemaError(f"{kind.value} checkpoint requires at least one resource")
         return cls(
             schema_version=SCHEMA_VERSION,
             checkpoint_id=uuid4_value(obj["checkpoint_id"], "checkpoint.checkpoint_id") or "",
             session_id=uuid4_value(obj["session_id"], "checkpoint.session_id") or "",
-            action_id=sha256_value(obj["action_id"], "checkpoint.action_id", optional=True),
-            kind=enum_value(CheckpointKind, obj["kind"], "checkpoint.kind"),
+            action_id=action_id,
+            kind=kind,
             created_at=utc_value(obj["created_at"], "checkpoint.created_at"),
             workspace_digest=sha256_value(obj["workspace_digest"], "checkpoint.workspace_digest") or "",
             head_sha=git_sha_value(obj["head_sha"], "checkpoint.head_sha") or "",

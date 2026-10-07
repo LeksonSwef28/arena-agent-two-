@@ -396,6 +396,8 @@ class ProjectSafeSessionStore:
                 f"invalid checkpoint manifest {checkpoint_id}: {exc}"
             ) from exc
 
+        if manifest.checkpoint_id != checkpoint_dir.name:
+            raise CheckpointIntegrityError("checkpoint_id does not match requested checkpoint directory")
         if manifest.session_id != self.session_id:
             raise CheckpointIntegrityError("checkpoint session_id does not match store")
 

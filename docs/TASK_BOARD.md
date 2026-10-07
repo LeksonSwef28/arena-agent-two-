@@ -59,6 +59,8 @@
 
 ## Очередь задач (Queue)
 
+- [ ] **T74 [FORK / CHECKPOINT INTEGRITY]** Block 4 / audit A02-A03: bind checkpoint ID to its requested directory; centralize kind/action/resources semantics in the existing manifest parser and preserve builder contract errors. Six regression cases fail on the parent; valid kinds and builder errors remain covered. Local Windows-targeted suite: 175 passed / 2 Windows-only skipped; architecture/modularity: 13 passed; changed-file Ruff clean. Acceptance: targeted local and exact-head Project Safe Windows green, security scan; PR stays draft/unmerged. Full preflight and mutation DoD remain open and are not claimed by this slice.
+
 - [ ] **T73 [FORK / RECOVERY IMPORT + WINDOWS GATE]** Block 3 / audit A01: use the existing WorkspaceError hierarchy in recovery; add direct recovery import, clean assessment, workspace-error fail-closed, interrupted-marker/idempotency and live-lease regressions to Project Safe Windows. No checkpoint/lifecycle/event-semantic changes in this slice. Acceptance: focused/local suite plus exact-head Windows green; PR stays draft/unmerged.
 
 - [ ] **T72 [FORK / PROJECT-SAFE HEAD REPAIR]** Fork PR #1, `hardening/project-safe-v0`: remove stale unused `WorkspaceEvidence` import and patch checkpoint fault injection at the actual `storage.durable_replace` call site. Existing coordinator already uses `(WorkspaceManifest, digest)`. Local checkpoint/coordinator/workspace: 33 passed; bilateral restoration of stale names reproduced ImportError/AttributeError. Acceptance: exact-head Project Safe Windows green; keep PR draft and unmerged. General lint/preflight debt is reported separately and is outside this repair block.

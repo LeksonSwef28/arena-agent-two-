@@ -7,11 +7,11 @@ from typing import Any
 from .action_models import FileResourceBefore
 from .canonical import canonical_sha256
 from .checkpoint_models import CheckpointManifest, CheckpointResource
-from .schema_types import CheckpointKind, SCHEMA_VERSION
+from .schema_types import SCHEMA_VERSION, CheckpointKind
 from .schema_utils import (
+    SchemaError,
     git_sha_value,
     sha256_value,
-    string_value,
     utc_value,
     uuid4_value,
 )
@@ -110,18 +110,6 @@ def build_checkpoint_manifest(
         checked_kind = kind
 
     resource_list = list(resources)
-    if checked_kind is CheckpointKind.SESSION_BASELINE and checked_action is not None:
-        raise CheckpointContractError("SESSION_BASELINE checkpoint must not have action_id")
-    if checked_kind in {CheckpointKind.RESOURCE_BEFORE, CheckpointKind.RESOURCE_AFTER}:
-        if checked_action is None:
-            raise CheckpointContractError(
-                f"{checked_kind.value} checkpoint requires action_id"
-            )
-        if not resource_list:
-            raise CheckpointContractError(
-                f"{checked_kind.value} checkpoint requires at least one resource"
-            )
-
     raw = {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": checked_checkpoint,
@@ -135,7 +123,10 @@ def build_checkpoint_manifest(
         "manifest_sha256": "0" * 64,
     }
     raw["manifest_sha256"] = checkpoint_manifest_sha256(raw)
-    manifest = CheckpointManifest.from_dict(raw)
+    try:
+        manifest = CheckpointManifest.from_dict(raw)
+    except SchemaError as exc:
+        raise CheckpointContractError(str(exc)) from exc
     validate_checkpoint_manifest_digest(manifest)
     return manifest
 
