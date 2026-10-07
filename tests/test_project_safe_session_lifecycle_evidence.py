@@ -1,6 +1,8 @@
 """T80: status/reason/timestamp evidence despite valid event counts and hashes."""
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from arena.project_safe_session import StateSnapshot
@@ -233,3 +235,256 @@ def test_status_evidence_tracks_recovery_detection(tmp_path, change):
         assert result.reason.value == ("INTERRUPTED_ACTION" if change is None else "STATE_JOURNAL_MISMATCH")
     finally:
         lease.release()
+
+
+@pytest.fixture
+def phase_session(tmp_path):
+    repo, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Change foo", requested_mode="write", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        yield repo, lease, coordinator, state, coordinator._store(state.session_id)
+    finally:
+        lease.release()
+
+
+def _pending_action(store, state, *, last="PREPARED", phase="PLANNING"):
+    action_id = _identity(state.session_id)
+    payload_ref, _, payload_sha = store.write_action_input(action_id, ACTION_ARGS)
+    states = ["PREPARED"]
+    if last != "PREPARED":
+        states.append("EXECUTING")
+    if last == "VERIFYING":
+        states.append("VERIFYING")
+    elif last == "INTERRUPTED":
+        states.append("INTERRUPTED")
+    for action_state in states:
+        draft = _draft(store, action_id, payload_ref, payload_sha, state.active_flow.flow_id,
+                       state=action_state, effect="PARTIAL" if action_state == "INTERRUPTED" else "NONE",
+                       reason="injected interruption" if action_state == "INTERRUPTED" else None)
+        draft["workspace_digest_context"] = state.active_flow.workspace_digest_expected_current
+        store.append_action(draft)
+    raw = state.to_dict()
+    raw["state_revision"] += 1
+    raw["execution"]["pending_action_id"] = action_id
+    raw["lifecycle"]["phase"] = phase
+    updated = StateSnapshot.from_dict(raw)
+    store.write_state(updated, expected_current_revision=state.state_revision)
+    return updated
+
+
+def _enter_recovery(lease, state):
+    manager = ProjectSafeRecoveryManager(lease)
+    assessment = manager.assess(state.session_id)
+    assert assessment.reason.value == "INTERRUPTED_ACTION"
+    return manager.enter_interrupted_recovery(state.session_id, assessment, at=NOW4)
+
+
+@pytest.mark.parametrize("case,phase", [
+    ("created", "PLANNING"), ("created", "REVIEWING"),
+    ("active", "PLANNING"), ("active", "REVIEWING"),
+    ("flow", "IDLE"), ("flow", "REVIEWING"),
+    ("flow", "EXECUTING"), ("flow", "VERIFYING"),
+    ("closed", "PLANNING"), ("refined", "PLANNING"), ("paused", "IDLE"),
+])
+def test_phase_evidence_rejects_snapshot_without_markers(tmp_path, case, phase):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="read", at=NOW1)
+        if case != "created":
+            state = coordinator.activate_session(state.session_id, at=NOW2)
+        if case in {"flow", "closed", "refined", "paused"}:
+            state = coordinator.start_flow(state.session_id, at=NOW3)
+        if case == "closed":
+            state = coordinator.close_flow(state.session_id, at=NOW4)
+        elif case == "refined":
+            state = coordinator.refine_goal(state.session_id, new_goal="New goal", at=NOW4)
+        elif case == "paused":
+            state = coordinator.pause_session(state.session_id, at=NOW4)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["lifecycle"]["phase"] = phase
+        store = coordinator._store(state.session_id)
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+        result = _assess_without_writes(lease, coordinator, state.session_id)
+        assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("last,phase", [
+    ("PREPARED", "EXECUTING"), ("PREPARED", "VERIFYING"),
+    ("PREPARED", "IDLE"), ("PREPARED", "REVIEWING"),
+    ("EXECUTING", "VERIFYING"), ("VERIFYING", "REVIEWING"),
+])
+def test_phase_evidence_rejects_unsupported_pending_phase(phase_session, last, phase):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state, last=last, phase=phase)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+@pytest.mark.parametrize("last,phase", [
+    ("PREPARED", "PLANNING"), ("EXECUTING", "PLANNING"), ("EXECUTING", "EXECUTING"),
+    ("VERIFYING", "PLANNING"), ("VERIFYING", "EXECUTING"), ("VERIFYING", "VERIFYING"),
+])
+def test_phase_evidence_preserves_journal_ahead_crash_gaps(phase_session, last, phase):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state, last=last, phase=phase)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "INTERRUPTED_ACTION"
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"reason": "unknown"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"reason": "JOURNAL_CORRUPT"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"reason": True}, "EVENT_JOURNAL_CORRUPT"),
+    ({"interrupted_action_id": None}, "EVENT_JOURNAL_CORRUPT"),
+    ({"interrupted_action_id": "invalid"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"interrupted_action_id": False}, "EVENT_JOURNAL_CORRUPT"),
+    ({"interrupted_action_id": "b" * 64}, "STATE_JOURNAL_MISMATCH"),
+    ({"message": False}, "EVENT_JOURNAL_CORRUPT"),
+    ({"missing": "message"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"extra": "unknown"}, "EVENT_JOURNAL_CORRUPT"),
+    ({"duplicate": True}, "EVENT_JOURNAL_CORRUPT"),
+])
+def test_recovery_evidence_rejects_rehashed_detection(phase_session, change, reason):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state)
+    state = _enter_recovery(lease, state)
+    drafts = _drafts(store)
+    for field, value in change.items():
+        if field == "missing":
+            drafts[-1]["data"].pop(value)
+        elif field == "extra":
+            drafts[-1]["data"][value] = "unexpected"
+        elif field == "duplicate":
+            drafts.append(dict(drafts[-1]))
+        else:
+            drafts[-1]["data"][field] = value
+    _replace_events(store, state, drafts)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == reason
+
+
+@pytest.mark.parametrize("field,value", [
+    ("reason", "WORKSPACE_DRIFT"), ("interrupted_action_id", "b" * 64),
+    ("detected_at", NOW3), ("missing_snapshot", None),
+])
+def test_recovery_evidence_rejects_snapshot_disagreement(phase_session, field, value):
+    _, lease, coordinator, state, store = phase_session
+    state = _enter_recovery(lease, _pending_action(store, state))
+    raw = state.to_dict()
+    raw["state_revision"] += 1
+    if field == "missing_snapshot":
+        raw["recovery"] = None
+        raw["lifecycle"]["phase"] = "PLANNING"
+    else:
+        raw["recovery"][field] = value
+    store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+@pytest.mark.parametrize("last", ["EXECUTING", "ABANDONED"])
+def test_recovery_evidence_rejects_action_advancement_after_detection(phase_session, last):
+    _, lease, coordinator, state, store = phase_session
+    state = _enter_recovery(lease, _pending_action(store, state))
+    previous = store.read_actions().records[-1]
+    draft = _draft(store, previous.action_id, previous.input.payload_ref, previous.input.payload_sha256,
+                   previous.flow_id, state=last, effect="NONE", reason="USER_CANCELLED" if last == "ABANDONED" else None)
+    draft["workspace_digest_context"] = state.active_flow.workspace_digest_expected_current
+    record = store.append_action(draft)
+    if last == "ABANDONED":
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["execution"].update(pending_action_id=None, last_terminal_action_id=record.action_id,
+                                 last_action_seq=record.action_seq)
+        store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+def test_recovery_evidence_rejects_unlinked_snapshot(tmp_path):
+    repo, lease, coordinator = _coordinator(tmp_path)
+    try:
+        state = coordinator.create_session(goal="Inspect", requested_mode="write", at=NOW1)
+        coordinator.activate_session(state.session_id, at=NOW2)
+        (repo / "note.txt").write_text("external change", encoding="utf-8")
+        state = coordinator.start_flow(state.session_id, at=NOW3)
+        raw = state.to_dict()
+        raw["state_revision"] += 1
+        raw["lifecycle"]["phase"] = "RECOVERY"
+        raw["recovery"] = {"recovery_id": str(uuid.uuid4()), "reason": "INTERRUPTED_ACTION",
+                           "interrupted_action_id": "b" * 64, "detected_at": NOW3,
+                           "workspace_checkpoint_id": None}
+        coordinator._store(state.session_id).write_state(
+            StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision,
+        )
+        result = _assess_without_writes(lease, coordinator, state.session_id)
+        assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("last", ["PREPARED", "EXECUTING", "VERIFYING", "INTERRUPTED"])
+def test_recovery_evidence_accepts_supported_interruption_and_idempotency(phase_session, last):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state, last=last)
+    state = _enter_recovery(lease, state)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "INTERRUPTED_ACTION"
+    if last == "INTERRUPTED":
+        assert store.read_actions().records[-1].effect.status.value == "PARTIAL"
+    before = (store.state_path.read_bytes(), store.events_path.read_bytes(), store.actions_path.read_bytes())
+    assert ProjectSafeRecoveryManager(lease).enter_interrupted_recovery(state.session_id, result, at=NOW4) == state
+    assert before == (store.state_path.read_bytes(), store.events_path.read_bytes(), store.actions_path.read_bytes())
+
+
+@pytest.mark.parametrize("case", ["another_action", "previous_flow"])
+def test_phase_evidence_rejects_unrelated_verifying_markers(phase_session, case):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state, last="VERIFYING")
+    previous = store.read_actions().records[-1]
+    draft = _draft(store, previous.action_id, previous.input.payload_ref, previous.input.payload_sha256,
+                   previous.flow_id, state="FAILED", effect="NONE", reason="verification cancelled")
+    draft["workspace_digest_context"] = state.active_flow.workspace_digest_expected_current
+    terminal = store.append_action(draft)
+    raw = state.to_dict()
+    raw["state_revision"] += 1
+    raw["execution"].update(pending_action_id=None, last_terminal_action_id=terminal.action_id,
+                             last_action_seq=terminal.action_seq)
+    updated = StateSnapshot.from_dict(raw)
+    store.write_state(updated, expected_current_revision=state.state_revision)
+    state = updated
+    if case == "previous_flow":
+        coordinator.close_flow(state.session_id, at=NOW4)
+        state = coordinator.start_flow(state.session_id, at=NOW4)
+    else:
+        action_id = _identity(state.session_id, target="d" * 64)
+        payload_ref, _, payload_sha = store.write_action_input(action_id, ACTION_ARGS)
+        draft = _draft(store, action_id, payload_ref, payload_sha, state.active_flow.flow_id,
+                       state="PREPARED", effect="NONE")
+        draft["effect_target_fingerprint"] = "d" * 64
+        draft["workspace_digest_context"] = state.active_flow.workspace_digest_expected_current
+        store.append_action(draft)
+    raw = state.to_dict()
+    raw["state_revision"] += 1
+    raw["lifecycle"]["phase"] = "VERIFYING"
+    if case == "another_action":
+        raw["execution"]["pending_action_id"] = action_id
+    store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "STATE_JOURNAL_MISMATCH"
+
+
+def test_phase_evidence_preserves_unowned_executing_crash_marker(phase_session):
+    _, lease, coordinator, state, store = phase_session
+    state = _pending_action(store, state, last="EXECUTING", phase="EXECUTING")
+    raw = state.to_dict()
+    raw["state_revision"] += 1
+    raw["execution"]["pending_action_id"] = None
+    store.write_state(StateSnapshot.from_dict(raw), expected_current_revision=state.state_revision)
+    result = _assess_without_writes(lease, coordinator, state.session_id)
+    assert result.reason.value == "INTERRUPTED_ACTION"

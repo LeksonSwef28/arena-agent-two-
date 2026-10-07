@@ -1,7 +1,9 @@
 """Read-only projection of status evidence emitted by coordinator and recovery."""
 from __future__ import annotations
 
+from .action_models import JournalRecord
 from .event_models import SessionEventRecord
+from .phase_recovery_evidence import phase_recovery_mismatch
 from .schema_types import EventType, LifecyclePhase, LifecycleReason, LifecycleStatus, RequestedMode
 from .schema_utils import SchemaError, enum_value, exact_keys
 from .state_models import LifecycleState, StateSnapshot
@@ -57,11 +59,12 @@ def _status_target(
     })
 
 
-def lifecycle_status_mismatch(
+def lifecycle_evidence_mismatch(
     state: StateSnapshot,
     events: tuple[SessionEventRecord, ...],
+    actions: tuple[JournalRecord, ...],
 ) -> str | None:
-    """Compare status/reason/time; phase and action/recovery payload proof are separate."""
+    """Project implemented lifecycle events, then check phase/recovery evidence."""
     current = LifecycleState.from_dict({
         "status": "CREATED", "phase": "IDLE", "reason": None, "changed_at": state.created_at,
     })
@@ -99,4 +102,4 @@ def lifecycle_status_mismatch(
     for field in ("status", "reason", "changed_at"):
         if getattr(state.lifecycle, field) != getattr(current, field):
             return f"lifecycle.{field} disagrees with implemented lifecycle event history"
-    return None
+    return phase_recovery_mismatch(state, current.phase, events, actions)
