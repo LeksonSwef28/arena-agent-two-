@@ -6,15 +6,17 @@ from pathlib import Path
 
 import pytest
 
+import arena.project_safe_session.coordinator as coordinator_module
 from arena.project_safe_session import (
     ActiveSessionConflictError,
     ProjectLease,
-    ProjectSafeSessionCoordinator,
     ProjectRegistryStore,
+    ProjectSafeSessionCoordinator,
     SessionCoordinatorError,
     normalize_goal_v1,
     session_fingerprint_v1,
 )
+from arena.project_safe_session.workspace import WorkspaceError, WorkspaceUnstableError
 
 NOW1 = "2026-10-07T03:20:00Z"
 NOW2 = "2026-10-07T03:21:00Z"
@@ -311,5 +313,83 @@ def test_resume_paused_flow_with_workspace_drift_enters_waiting(tmp_path: Path):
         registry = ProjectRegistryStore(lease).read()
         assert registry is not None
         assert registry.active_session_id == created.session_id
+    finally:
+        lease.release()
+
+
+@pytest.mark.parametrize("error_type", [WorkspaceError, WorkspaceUnstableError, OSError])
+def test_failed_resume_evidence_preserves_admission_and_can_retry(
+    tmp_path: Path, monkeypatch, error_type,
+):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        created = coordinator.create_session(goal="Flow", requested_mode="write", at=NOW1)
+        coordinator.activate_session(created.session_id, at=NOW2)
+        started = coordinator.start_flow(created.session_id, at=NOW3)
+        paused = coordinator.pause_session(created.session_id, at=NOW4)
+        store = coordinator._store(created.session_id)
+        registry = coordinator.registry
+        before = (
+            registry.path.read_bytes(), store.state_path.read_bytes(),
+            store.events_path.read_bytes(),
+        )
+
+        def fail_evidence(_root):
+            raise error_type("injected resume evidence failure")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(coordinator_module, "compute_workspace_digest_v1", fail_evidence)
+            with pytest.raises(error_type, match="injected resume evidence failure"):
+                coordinator.activate_session(created.session_id, at=NOW4)
+
+        assert registry.read().active_session_id is None
+        assert coordinator.read_session(created.session_id) == paused
+        assert before == (
+            registry.path.read_bytes(), store.state_path.read_bytes(),
+            store.events_path.read_bytes(),
+        )
+        assert not store.actions_path.exists()
+        resumed = coordinator.activate_session(created.session_id, at=NOW4)
+        assert resumed.lifecycle.status.value == "ACTIVE"
+        assert resumed.active_flow == started.active_flow
+        assert registry.read().active_session_id == created.session_id
+        assert resumed.state_revision == paused.state_revision + 1
+        assert len(store.read_events().records) == paused.execution.last_event_seq + 1
+        assert coordinator.activate_session(created.session_id, at=NOW4) == resumed
+    finally:
+        lease.release()
+
+
+def test_failed_resume_does_not_block_another_session(tmp_path: Path, monkeypatch):
+    _, lease, coordinator = _coordinator(tmp_path)
+    try:
+        first = coordinator.create_session(goal="Flow", requested_mode="write", at=NOW1)
+        coordinator.activate_session(first.session_id, at=NOW2)
+        coordinator.start_flow(first.session_id, at=NOW3)
+        paused = coordinator.pause_session(first.session_id, at=NOW4)
+        second = coordinator.create_session(goal="Other task", requested_mode="read", at=NOW4)
+
+        def fail_evidence(_root):
+            raise WorkspaceError("injected resume evidence failure")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(coordinator_module, "compute_workspace_digest_v1", fail_evidence)
+            with pytest.raises(WorkspaceError, match="injected resume evidence failure"):
+                coordinator.activate_session(first.session_id, at=NOW4)
+        active = coordinator.activate_session(second.session_id, at=NOW4)
+        assert active.lifecycle.status.value == "ACTIVE"
+        assert coordinator.registry.read().active_session_id == second.session_id
+        assert coordinator.read_session(first.session_id) == paused
+        first_store = coordinator._store(first.session_id)
+        before_conflict = (
+            coordinator.registry.path.read_bytes(), first_store.state_path.read_bytes(),
+            first_store.events_path.read_bytes(),
+        )
+        with pytest.raises(ActiveSessionConflictError):
+            coordinator.activate_session(first.session_id, at=NOW4)
+        assert before_conflict == (
+            coordinator.registry.path.read_bytes(), first_store.state_path.read_bytes(),
+            first_store.events_path.read_bytes(),
+        )
     finally:
         lease.release()

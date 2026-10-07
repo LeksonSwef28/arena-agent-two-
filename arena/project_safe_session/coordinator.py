@@ -258,8 +258,6 @@ class ProjectSafeSessionCoordinator:
                 f"cannot activate session from {state.lifecycle.status.value}"
             )
 
-        self.registry.activate_session(session_id, at=timestamp)
-
         target_status = "ACTIVE"
         target_reason = None
         if (
@@ -270,6 +268,9 @@ class ProjectSafeSessionCoordinator:
             if current_digest != state.active_flow.workspace_digest_expected_current:
                 target_status = "WAITING"
                 target_reason = "WORKSPACE_DRIFT"
+
+        # Evidence failures must leave the active project slot unclaimed.
+        self.registry.activate_session(session_id, at=timestamp)
 
         raw = state.to_dict()
         old = state.lifecycle.status.value
