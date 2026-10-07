@@ -5,6 +5,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from .action_flow_evidence import action_flow_mismatch
+from .checkpoint_models import CheckpointManifest
 from .coordinator import SessionCoordinatorError, normalize_goal_v1, session_fingerprint_v1
 from .event_models import SessionEventRecord
 from .flow_evidence import flow_history_mismatch
@@ -265,6 +267,7 @@ class ProjectSafeRecoveryManager:
         if lifecycle_mismatch is not None:
             return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, lifecycle_mismatch)
 
+        last_verified_checkpoint: CheckpointManifest | None = None
         checkpoint_ids = {
             state.workspace.session_baseline.checkpoint_id,
             state.workspace.last_verified_checkpoint_id,
@@ -290,6 +293,7 @@ class ProjectSafeRecoveryManager:
                         checkpoint_id=checkpoint_id,
                     )
             if checkpoint_id == state.workspace.last_verified_checkpoint_id:
+                last_verified_checkpoint = checkpoint
                 if (
                     checkpoint.workspace_digest
                     != state.workspace.workspace_digest_last_verified
@@ -300,6 +304,10 @@ class ProjectSafeRecoveryManager:
                         "last-verified snapshot disagrees with checkpoint",
                         checkpoint_id=checkpoint_id,
                     )
+
+        action_mismatch = action_flow_mismatch(state, events, actions, last_verified_checkpoint)
+        if action_mismatch is not None:
+            return self._assessment(RecoveryReason.STATE_JOURNAL_MISMATCH, action_mismatch)
 
         latest_by_action: dict[str, Any] = {}
         for record in actions:
