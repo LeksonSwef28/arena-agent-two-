@@ -215,6 +215,8 @@ class ProjectSafeSessionStore:
     ) -> None:
         with self._lock:
             self._require_lease()
+            if state.schema_version != SCHEMA_VERSION:
+                raise StorageError("unsupported state schema_version for v1 storage")
             if state.session_id != self.session_id:
                 raise StorageError("state session_id does not match store")
             if state.project_fingerprint != self.project_fingerprint:

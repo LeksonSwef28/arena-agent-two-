@@ -16,6 +16,7 @@ from .schema_utils import (
     to_data,
     uuid4_value,
 )
+from .state_models import ExecutionState, StateSnapshot
 
 
 @dataclass(frozen=True)
@@ -130,7 +131,74 @@ class CheckpointManifestV2(CheckpointManifest):
                       if field.name != "schema_version"}, schema_version=2, attempt_id=attempt)
 
 
+@dataclass(frozen=True)
+class FormatVersionsV2:
+    state: int
+    actions: int
+    checkpoints: int
+    events: int
+    registry: int
+    canonical_json: int
+    workspace_digest: int
+
+    @classmethod
+    def from_dict(cls, value: Any) -> FormatVersionsV2:
+        obj = object_value(value, "formats")
+        expected = {"state": 2, "actions": 2, "checkpoints": 2, "events": 1,
+                    "registry": 1, "canonical_json": 1, "workspace_digest": 1}
+        exact_keys(obj, set(expected), "formats")
+        for key, version in expected.items():
+            if integer_value(obj[key], f"formats.{key}", minimum=1) != version:
+                raise SchemaError(f"unsupported formats.{key}")
+        return cls(**obj)
+
+    def to_dict(self) -> dict[str, Any]:
+        return to_data(self)
+
+
+@dataclass(frozen=True)
+class ExecutionStateV2(ExecutionState):
+    last_applied_action_ref: ActionRecordRef | None
+
+    @classmethod
+    def from_dict(cls, value: Any) -> ExecutionStateV2:
+        obj = object_value(value, "execution_v2")
+        common_keys = {field.name for field in fields(ExecutionState)}
+        exact_keys(obj, common_keys | {"last_applied_action_ref"}, "execution_v2")
+        base = ExecutionState.from_dict({key: obj[key] for key in common_keys})
+        reference = (None if obj["last_applied_action_ref"] is None
+                     else ActionRecordRef.from_dict(obj["last_applied_action_ref"]))
+        # journal_seq counts transitions; last_action_seq counts logical actions.
+        # Their relationship and the referenced hash require history replay.
+        return cls(**{key: getattr(base, key) for key in common_keys},
+                   last_applied_action_ref=reference)
+
+    def to_dict(self) -> dict[str, Any]:
+        return to_data(self)
+
+
+@dataclass(frozen=True)
+class StateSnapshotV2(StateSnapshot):
+    execution: ExecutionStateV2
+    formats: FormatVersionsV2
+
+    @classmethod
+    def from_dict(cls, value: Any) -> StateSnapshotV2:
+        obj = _v2_envelope(value, StateSnapshot, {"formats"}, "state_v2")
+        formats = FormatVersionsV2.from_dict(obj["formats"])
+        execution = ExecutionStateV2.from_dict(obj["execution"])
+        common = {key: val for key, val in obj.items() if key != "formats"}
+        common["schema_version"] = 1
+        common["execution"] = {field.name: getattr(execution, field.name)
+                               for field in fields(ExecutionState)}
+        base = StateSnapshot.from_dict(common)
+        return cls(**{field.name: getattr(base, field.name) for field in fields(StateSnapshot)
+                      if field.name not in {"schema_version", "execution"}}, schema_version=2,
+                   execution=execution, formats=formats)
+
+
 __all__ = [
     "ActionRecordRef", "CheckpointManifestV2", "EventRecordRef", "JournalRecordV2",
     "WorkspaceVerificationRef",
+    "ExecutionStateV2", "FormatVersionsV2", "StateSnapshotV2",
 ]

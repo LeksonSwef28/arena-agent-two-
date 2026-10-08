@@ -78,6 +78,10 @@ for RESOURCE_BEFORE / RESOURCE_AFTER. Existing action/session/kind fields,
 resource validation and manifest hash remain authoritative. No free-form path
 or inferred directory lookup is added to journal references.
 
+State v2 adds required `formats` with exact keys `state`, `actions`,
+`checkpoints`, `events`, `registry`, `canonical_json`, `workspace_digest` and
+the supported tuple above. Missing, unknown or unsupported entries fail closed.
+
 State v2 adds `execution.last_applied_action_ref`: null before action projection,
 otherwise `{journal_seq, record_hash}` for the last action record incorporated
 into this snapshot. Existing state revision/event watermark checks remain.
@@ -262,3 +266,18 @@ State v2 format tuple/watermark, actual reference resolution, hash-chain replay,
 logical/per-attempt immutability, shared writer gate and crash recovery remain
 unimplemented. Structural model acceptance is not verification of history or
 checkpoint bytes. The second P1 remains open and this ADR stays PROPOSED.
+
+
+## T86 implementation progress (2026-10-08)
+
+Opt-in FormatVersionsV2, ExecutionStateV2 and StateSnapshotV2 now validate the
+format tuple and action watermark shape, reusing the v1 common-field parsers.
+The v1 state writer rejects unsupported schema versions before reading or
+publishing state. Production readers/admission still use v1; no v2 session is
+created and no legacy state is migrated.
+
+The watermark is not compared to last_action_seq: journal transitions and
+logical actions use different counters. Its hash, prefix membership and
+projection consistency require the next pure replay slice. This model slice
+does not prove history, checkpoint ownership or crash-gap behavior. The second
+P1 remains open; the ADR remains PROPOSED.

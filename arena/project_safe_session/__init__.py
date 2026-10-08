@@ -15,7 +15,10 @@ from .v2_models import (
     ActionRecordRef,
     CheckpointManifestV2,
     EventRecordRef,
+    ExecutionStateV2,
+    FormatVersionsV2,
     JournalRecordV2,
+    StateSnapshotV2,
     WorkspaceVerificationRef,
 )
 
@@ -23,7 +26,10 @@ __all__ = [
     "ActionRecordRef",
     "CheckpointManifestV2",
     "EventRecordRef",
+    "ExecutionStateV2",
+    "FormatVersionsV2",
     "JournalRecordV2",
+    "StateSnapshotV2",
     "ProjectLease",
     "ProjectLeaseBusyError",
     "ProjectLeaseError",
