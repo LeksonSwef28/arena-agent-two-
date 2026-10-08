@@ -1,4 +1,4 @@
-"""Opt-in v2 wire models; persistence and admission still use v1 parsers."""
+"""Opt-in v2 wire models; coordinator/recovery admission defaults remain v1."""
 from __future__ import annotations
 
 from dataclasses import dataclass, fields

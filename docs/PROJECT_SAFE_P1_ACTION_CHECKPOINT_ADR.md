@@ -353,3 +353,20 @@ It does not exclude external editors, solve multiple-state-root ownership A07,
 provide power-loss durability, or implement the future file executor transaction.
 Existing crash gaps remain recovery-required, not automatically repaired.
 Storage versions/writers/admission remain v1; the second P1 is still open.
+
+
+## T91 versioned storage capability (2026-10-08)
+
+Internal/test ProjectSafeSessionStoreV2 selects strict v2 state/action/checkpoint
+parsers through a shared immutable storage policy. Default store/coordinator and
+recovery remain v1. Events remain v1. Every operation checks an existing state
+envelope against the selected version and supported format tuple before writing;
+initial state publication also rejects an incompatible existing action journal.
+No automatic version inference, upgrade, migration or admission is introduced.
+
+Existing durable publication, manifest/path/session and backup/input byte checks
+are reused. V2 local action-history anchors and preparation ordering are shared
+with T87 through one helper; storage does not resolve causal event/checkpoint
+references or grant success admission. T92 must do that with real storage reads.
+The lower-level capability can persist structurally valid evidence only; T93
+still owes ordered orchestration and T94 admission. Second P1 remains open.

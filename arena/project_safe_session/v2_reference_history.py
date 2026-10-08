@@ -4,12 +4,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .action_contract import validate_action_history
 from .checkpoint_contract import validate_checkpoint_manifest_digest
 from .event_models import SessionEventRecord
 from .schema_types import ActionState, CheckpointKind, EventType
 from .schema_utils import SchemaError, uuid4_value
 from .storage import _validate_hash_record
+from .v2_action_history import validate_v2_action_history
 from .v2_models import ActionRecordRef, CheckpointManifestV2, JournalRecordV2
 
 
@@ -48,22 +48,12 @@ def validate_v2_reference_history(
         if action.session_id != session_id:
             raise SchemaError("action belongs to another session")
         previous_hash = action.record_hash
-    validate_action_history(actions)
+    validate_v2_action_history(actions)
 
-    first_actions: dict[str, JournalRecordV2] = {}
-    attempts: dict[str, JournalRecordV2] = {}
     latest: dict[str, V2SuccessEvidence] = {}
     owners: set[str] = set()
     successes: list[V2SuccessEvidence] = []
-    last_prepared_event_seq = 0
     for action in actions:
-        first = first_actions.setdefault(action.action_id, action)
-        if (action.flow_creation_ref != first.flow_creation_ref
-                or action.preceding_success_ref != first.preceding_success_ref):
-            raise SchemaError("immutable logical reference anchors changed")
-        prepared = attempts.setdefault(action.attempt_id, action)
-        if action.prepared_event_ref != prepared.prepared_event_ref:
-            raise SchemaError("prepared event reference changed within attempt")
         creation_ref = action.flow_creation_ref
         prefix_ref = action.prepared_event_ref
         if prefix_ref.event_seq > len(events):
@@ -82,9 +72,6 @@ def validate_v2_reference_history(
             raise SchemaError("flow is closed in prepared event prefix")
         # A later closure is not a claim about execution time of terminal records.
         if action.state is ActionState.PREPARED:
-            if prefix_ref.event_seq < last_prepared_event_seq:
-                raise SchemaError("prepared event head regresses in journal order")
-            last_prepared_event_seq = prefix_ref.event_seq
             predecessor = latest.get(action.flow_id or "")
             expected_ref = (None if predecessor is None else ActionRecordRef(
                 predecessor.action.journal_seq, predecessor.action.record_hash))

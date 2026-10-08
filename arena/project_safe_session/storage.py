@@ -1,4 +1,4 @@
-"""Durable state and strict hash-chained JSONL storage for project-safe v1."""
+"""Durable project-safe storage; v1 default with an explicit parser policy."""
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +12,6 @@ from .action_contract import (
     action_identity_from_draft,
     compute_args_hash,
     compute_attempt_id,
-    validate_action_history,
     validate_action_record,
 )
 from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads
@@ -27,8 +26,8 @@ from .lease import ProjectLease
 from .models import CheckpointManifest, JournalRecord, StateSnapshot
 from .owner_gate import owner_serialized
 from .paths import project_fingerprint
-from .schema_types import SCHEMA_VERSION
 from .schema_utils import SchemaError, exact_keys, relative_path_value, sha256_value, uuid4_value
+from .storage_formats import V1_STORAGE_FORMAT
 
 TRecord = TypeVar("TRecord")
 
@@ -172,6 +171,8 @@ def _read_journal(
 class ProjectSafeSessionStore:
     """Lease-bound durable store for one logical project-safe session."""
 
+    _format = V1_STORAGE_FORMAT
+
     def __init__(self, lease: ProjectLease, session_id: str) -> None:
         if not lease.held or lease.state_root is None or lease.lock_path is None:
             raise LeaseRequiredError("a live ProjectLease is required")
@@ -193,6 +194,10 @@ class ProjectSafeSessionStore:
     def _require_lease(self) -> None:
         if not self.lease.held or self.lease.owner_generation != self._owner_generation:
             raise LeaseRequiredError("project lease is no longer held")
+        try:
+            self._format.require_session_format(self.state_path)
+        except (OSError, ValueError) as exc:
+            raise StorageError(f"invalid state.json session format: {exc}") from exc
 
     @owner_serialized
     def read_state(self) -> StateSnapshot | None:
@@ -201,7 +206,7 @@ class ProjectSafeSessionStore:
             return None
         try:
             raw = strict_json_loads(self.state_path.read_bytes())
-            state = StateSnapshot.from_dict(raw)
+            state = self._format.state_model.from_dict(raw)
         except Exception as exc:
             raise StorageError(f"invalid state.json: {exc}") from exc
         if state.session_id != self.session_id:
@@ -219,14 +224,20 @@ class ProjectSafeSessionStore:
     ) -> None:
         with self._lock:
             self._require_lease()
-            if state.schema_version != SCHEMA_VERSION:
-                raise StorageError("unsupported state schema_version for v1 storage")
+            if type(state.schema_version) is not int or state.schema_version != self._format.version:
+                raise StorageError(f"unsupported state schema_version for v{self._format.version} storage")
             if state.session_id != self.session_id:
                 raise StorageError("state session_id does not match store")
             if state.project_fingerprint != self.project_fingerprint:
                 raise StorageError("state project_fingerprint does not match leased project")
 
+            try:
+                self._format.state_model.from_dict(state.to_dict())
+            except ValueError as exc:
+                raise StorageError(f"invalid state: {exc}") from exc
             current = self.read_state()
+            if current is None:
+                self.read_actions()  # No initial snapshot may mix an existing action journal.
             current_revision = 0 if current is None else current.state_revision
             if expected_current_revision is not None and expected_current_revision != current_revision:
                 raise StateRevisionError(
@@ -244,13 +255,13 @@ class ProjectSafeSessionStore:
         self._require_lease()
         result = _read_journal(
             self.actions_path,
-            parser=JournalRecord.from_dict,
+            parser=self._format.action_model.from_dict,
             seq_name="journal_seq",
             session_id=self.session_id,
         )
         try:
-            validate_action_history(result.records)
-        except ActionContractError as exc:
+            self._format.validate_actions(result.records)
+        except (ActionContractError, SchemaError) as exc:
             raise JournalCorruptionError(f"action contract violation: {exc}") from exc
 
         seen: set[str] = set()
@@ -296,11 +307,8 @@ class ProjectSafeSessionStore:
     def append_action(self, draft: Mapping[str, Any]) -> JournalRecord:
         with self._lock:
             self._require_lease()
-            exact_keys(draft, _ACTION_DRAFT_KEYS, "action draft")
+            exact_keys(draft, _ACTION_DRAFT_KEYS | self._format.extra_action_keys, "action draft")
             result = self.read_actions()
-            if result.missing_trailing_newline:
-                self._repair_trailing_newline(self.actions_path)
-
             records = result.records
             supplied_action = sha256_value(draft["action_id"], "action draft.action_id")
             assert supplied_action is not None
@@ -332,7 +340,7 @@ class ProjectSafeSessionStore:
             raw = dict(draft)
             raw.update(
                 {
-                    "schema_version": SCHEMA_VERSION,
+                    "schema_version": self._format.version,
                     "journal_seq": len(records) + 1,
                     "action_seq": action_seq,
                     "transition_seq": transition_seq,
@@ -341,14 +349,18 @@ class ProjectSafeSessionStore:
                 }
             )
             raw["record_hash"] = _record_hash(raw)
-            record = JournalRecord.from_dict(raw)
+            record = self._format.action_model.from_dict(raw)
 
             try:
                 validate_action_record(record, same_action)
-            except ActionContractError as exc:
+                if self._format.version == 2:
+                    self._format.validate_actions((*records, record))
+            except (ActionContractError, SchemaError) as exc:
                 raise StorageError(f"invalid action transition: {exc}") from exc
 
             self._verify_action_input(record)
+            if result.missing_trailing_newline:
+                self._repair_trailing_newline(self.actions_path)
 
             durable_append(
                 self.actions_path,
@@ -369,7 +381,7 @@ class ProjectSafeSessionStore:
             raw = dict(draft)
             raw.update(
                 {
-                    "schema_version": SCHEMA_VERSION,
+                    "schema_version": 1,
                     "event_seq": len(records) + 1,
                     "session_id": self.session_id,
                     "previous_record_hash": records[-1].record_hash if records else None,
@@ -400,7 +412,7 @@ class ProjectSafeSessionStore:
             )
         try:
             raw = strict_json_loads(manifest_path.read_bytes())
-            manifest = CheckpointManifest.from_dict(raw)
+            manifest = self._format.checkpoint_model.from_dict(raw)
             validate_checkpoint_manifest_digest(manifest)
         except (OSError, ValueError, CheckpointContractError) as exc:
             raise CheckpointIntegrityError(
@@ -447,13 +459,14 @@ class ProjectSafeSessionStore:
         """Durably publish backups first and manifest last."""
         with self._lock:
             self._require_lease()
-            if manifest.schema_version != SCHEMA_VERSION:
-                raise CheckpointIntegrityError("unsupported checkpoint schema_version for v1 storage")
+            if type(manifest.schema_version) is not int or manifest.schema_version != self._format.version:
+                raise CheckpointIntegrityError(f"unsupported checkpoint schema_version for v{self._format.version} storage")
             if manifest.session_id != self.session_id:
                 raise CheckpointIntegrityError("checkpoint session_id does not match store")
             try:
+                self._format.checkpoint_model.from_dict(manifest.to_dict())
                 validate_checkpoint_manifest_digest(manifest)
-            except CheckpointContractError as exc:
+            except (CheckpointContractError, SchemaError) as exc:
                 raise CheckpointIntegrityError(str(exc)) from exc
 
             checkpoint_dir = self._checkpoint_dir(manifest.checkpoint_id)
