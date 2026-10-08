@@ -8,20 +8,21 @@ from typing import Any
 
 from arena.files.safe_edit import apply_preview, create_preview, rollback_change
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
+_MCP_BLOCKED_FILES_CASEFOLD = frozenset(name.casefold() for name in _MCP_BLOCKED_FILES)
 
 
-def _validate_home_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
+def _validate_workspace_path(path: str, ctx, *, for_write: bool = False) -> tuple[Path | None, dict[str, Any] | None]:
     if not path:
         return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-    if Path(path).name in _MCP_BLOCKED_FILES:
+    if Path(path).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
         return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: accessing {Path(path).name} is not allowed"}]}
-    resolved = Path(path).resolve()
-    home = Path.home().resolve()
-    if not ctx.under_root(resolved, home):
-        return None, {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+    resolved, reason = resolve_workspace_path(path, ctx, for_write=for_write)
+    if reason:
+        return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {reason}"}]}
     return resolved, None
 
 
@@ -64,11 +65,12 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         return _safe_edit_text_result(rollback_change(rollback_id, force=bool(args.get("force", False))))
 
     p = os.path.expanduser(args.get("path") or "")
-    path, err = _validate_home_path(p, ctx)
+    for_write = name in {"fs.write", "fs.write_base64", "fs.edit", "fs.create"}
+    path, err = _validate_workspace_path(p, ctx, for_write=for_write)
     if err:
-        if name == "fs.write" and p and Path(p).name in _MCP_BLOCKED_FILES:
+        if name == "fs.write" and p and Path(p).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}
-        if name == "fs.edit" and p and Path(p).name in _MCP_BLOCKED_FILES:
+        if name == "fs.edit" and p and Path(p).name.casefold() in _MCP_BLOCKED_FILES_CASEFOLD:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: editing {Path(p).name} is not allowed"}]}
         return err
     assert path is not None  # the guard above already proved this
@@ -81,6 +83,10 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         if name == "fs.write":
             content = args.get("content", "")
             os.makedirs(os.path.dirname(str(path)) or ".", exist_ok=True)
+            path, recheck = _validate_workspace_path(p, ctx, for_write=True)
+            if recheck:
+                return recheck
+            assert path is not None
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             return text_content(f"wrote {len(content)} bytes to {path}")
@@ -96,6 +102,10 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
                 except Exception as exc:
                     return {"isError": True, "content": [{"type": "text", "text": f"ERROR: invalid base64: {exc}"}]}
             os.makedirs(os.path.dirname(str(path)) or ".", exist_ok=True)
+            path, recheck = _validate_workspace_path(p, ctx, for_write=True)
+            if recheck:
+                return recheck
+            assert path is not None
             with open(path, "wb") as f:
                 f.write(data)
             return text_content(f"wrote {len(data)} bytes to {path}")
@@ -108,6 +118,10 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         return {"isError": True, "content": [{"type": "text", "text": msg}]}
 
     if name == "fs.edit":
+        path, recheck = _validate_workspace_path(p, ctx, for_write=True)
+        if recheck:
+            return recheck
+        assert path is not None
         old_text = args.get("old_text", "")
         new_text = args.get("new_text", "")
         preview = create_preview(path, old_text, new_text, replace_all=bool(args.get("replace_all", False)))
@@ -119,7 +133,7 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
     if name == "fs.view":
         return _handle_fs_view(path, args)
     if name == "fs.create":
-        return _handle_fs_create(path, args)
+        return _handle_fs_create(path, args, ctx=ctx, raw_path=p)
     return None
 
 
@@ -172,7 +186,13 @@ def _handle_fs_view(path: Path, args: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
+def _handle_fs_create(
+    path: Path,
+    args: dict[str, Any],
+    *,
+    ctx,
+    raw_path: str,
+) -> dict[str, Any]:
     content = args.get("content", "")
     if not content:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing or empty 'content' argument"}]}
@@ -188,6 +208,11 @@ def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
             return {"isError": True, "content": [{"type": "text", "text": "ERROR: invalid base64 content"}]}
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+            checked, recheck = _validate_workspace_path(raw_path, ctx, for_write=True)
+            if recheck:
+                return recheck
+            assert checked is not None
+            path = checked
             path.write_bytes(binary_content)
             bytes_written = len(binary_content)
         except PermissionError:
@@ -198,6 +223,11 @@ def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     else:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+            checked, recheck = _validate_workspace_path(raw_path, ctx, for_write=True)
+            if recheck:
+                return recheck
+            assert checked is not None
+            path = checked
             path.write_text(content, encoding="utf-8")
             bytes_written = len(content)
         except PermissionError:

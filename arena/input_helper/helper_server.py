@@ -318,6 +318,14 @@ class InputHandler(BaseHTTPRequestHandler):
         pass
 
     def _check_auth(self) -> bool:
+        if os.environ.get("ARENA_PROJECT_SAFE", "").strip().lower() in {"1", "true", "yes", "on"}:
+            self.send_response(503)
+            self.end_headers()
+            self.wfile.write(
+                b'{"ok":false,"error":"PROJECT-SAFE mode disables this helper at request time"}'
+            )
+            return False
+
         # v4.164.0 (bug #54): this used to be `if not _TOKEN: return True`,
         # so a helper started without a token served every endpoint to
         # anything that could reach the port -- including POST /launch,
@@ -438,6 +446,14 @@ def main():
     parser.add_argument("--port", type=int, default=19222)
     parser.add_argument("--token", type=str, default="")
     args = parser.parse_args()
+
+    if os.environ.get("ARENA_PROJECT_SAFE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        print(
+            "ERROR: ARENA_PROJECT_SAFE mode disables the interactive Input Helper; "
+            "desktop input and process launch are outside the project-safe capability set.",
+            file=sys.stderr,
+        )
+        return 3
 
     global _TOKEN
     _TOKEN = args.token or os.environ.get("ARENA_INPUT_HELPER_TOKEN", "")

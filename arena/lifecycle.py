@@ -15,6 +15,7 @@ from aiohttp import web
 
 from arena.app_keys import APP_CFG, APP_FILE_WATCH_LOOP, APP_LOG_CLEANUP, APP_MISSION_SCHEDULE_LOOP, APP_TASK_RUNNER
 from arena.async_lifecycle import cancel_background_tasks, spawn_background
+from arena.project_safe import project_safe_enabled
 
 
 @dataclass(frozen=True)
@@ -69,15 +70,31 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
 
         cfg = app[APP_CFG]
         cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
-        app[APP_TASK_RUNNER] = asyncio.ensure_future(ctx.task_runner_loop(app))
+        project_safe = project_safe_enabled()
+
+        # Log cleanup and the health-only watchdog remain available.  Active
+        # task/mission/file-watch executors are deliberately absent in
+        # project-safe mode so queued or pre-existing work cannot run merely
+        # because the bridge process started.
         app[APP_LOG_CLEANUP] = asyncio.ensure_future(ctx.log_cleanup_loop(app))
-        app[APP_FILE_WATCH_LOOP] = asyncio.ensure_future(ctx.file_watch_loop(app))
-        mission_schedule_loop = ctx.get_mission_schedule_loop()
-        if mission_schedule_loop is not None:
-            app[APP_MISSION_SCHEDULE_LOOP] = asyncio.ensure_future(mission_schedule_loop(app))
+        if project_safe:
+            ctx.log_info(
+                "[ProjectSafe] Active background executors disabled: "
+                "task runner, file watch, mission scheduler"
+            )
+        else:
+            app[APP_TASK_RUNNER] = asyncio.ensure_future(ctx.task_runner_loop(app))
+            app[APP_FILE_WATCH_LOOP] = asyncio.ensure_future(ctx.file_watch_loop(app))
+            mission_schedule_loop = ctx.get_mission_schedule_loop()
+            if mission_schedule_loop is not None:
+                app[APP_MISSION_SCHEDULE_LOOP] = asyncio.ensure_future(mission_schedule_loop(app))
+
         ctx.start_watchdog()
 
-        if shutil.which("ydotoold") and hasattr(os, "getuid") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
+        if (not project_safe
+                and shutil.which("ydotoold")
+                and hasattr(os, "getuid")
+                and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid())):
             try:
                 proc = await asyncio.create_subprocess_exec(
                     "ydotoold",
@@ -87,7 +104,17 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                 ctx.log_info("[Desktop] ydotoold started (PID %d) for Wayland automation", proc.pid)
             except Exception as e:
                 ctx.log_debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
-        ctx.log_info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", ctx.version)
+        if project_safe:
+            ctx.log_info(
+                "[UnifiedBridge v%s] Project-safe lifecycle started "
+                "(log cleanup + health watchdog only)",
+                ctx.version,
+            )
+        else:
+            ctx.log_info(
+                "[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started",
+                ctx.version,
+            )
 
         async def _post_update_smoke_bg():
             try:
@@ -100,24 +127,29 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                         (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] FAILED -- %s", outcome.get("error") or (outcome.get("smoke") or {}).get("mode"))
             except Exception as e:
                 (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] hook error: %s", e)
-        spawn_background(
-            _post_update_smoke_bg(),
-            on_error=lambda exc: (ctx.log_warning or ctx.log_info)(
-                "[PostUpdateSmoke] detached task failed: %s", exc
-            ),
-        )
+        if not project_safe:
+            spawn_background(
+                _post_update_smoke_bg(),
+                on_error=lambda exc: (ctx.log_warning or ctx.log_info)(
+                    "[PostUpdateSmoke] detached task failed: %s", exc
+                ),
+            )
+        else:
+            ctx.log_info("[ProjectSafe] Post-update smoke execution disabled")
 
         # v4.22.1 + v4.38.0: fire autostart hooks in the background
         # for every wired transport. Each hook is a no-op when its
         # marker + env are both unset, so a fresh install pays zero
         # cost. run_in_executor keeps the aiohttp event loop free.
-        autostart_hooks = [
+        autostart_hooks = [] if project_safe else [
             ("Cloudflared", ctx.cloudflared_autostart),
             ("Ngrok",       ctx.ngrok_autostart),
             ("Tailscale",   ctx.tailscale_autostart),
             # v4.47.0: bore as fifth transport.
             ("Bore",        ctx.bore_autostart),
         ]
+        if project_safe:
+            ctx.log_info("[ProjectSafe] Tunnel autostart hooks disabled")
         for label, hook in autostart_hooks:
             if hook is None:
                 # v4.60.2: log-only diagnostic so operators on Windows can

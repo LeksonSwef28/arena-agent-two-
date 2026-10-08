@@ -7,6 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.app_keys import APP_CFG, APP_MCP_SESSIONS
+from arena.project_safe_http import project_safe_http_middleware
 from arena.routes import register_routes
 
 
@@ -26,7 +27,10 @@ def make_app(
     the v3 migration. Once the container is fully typed, this can accept a
     HandlerRegistry instead without changing route registration.
     """
-    app = web.Application(client_max_size=client_max_size, middlewares=[error_middleware])
+    app = web.Application(
+        client_max_size=client_max_size,
+        middlewares=[project_safe_http_middleware, error_middleware],
+    )
     app[APP_CFG] = cfg
     app[APP_MCP_SESSIONS] = {}
 

@@ -3,9 +3,14 @@ from __future__ import annotations
 
 from arena.mcp.standalone_common import VERSION, rpc_error, rpc_result
 from arena.mcp.standalone_tools import TOOLS, call_tool
+from arena.project_safe import project_safe_secondary_server_block_reason
 
 
 def handle_rpc(msg: dict) -> dict | None:
+    blocked = project_safe_secondary_server_block_reason("standalone MCP dispatcher")
+    if blocked:
+        return rpc_error(msg.get("id"), -32001, blocked)
+
     m = msg.get("method", "")
     rid = msg.get("id")
     if m == "initialize":

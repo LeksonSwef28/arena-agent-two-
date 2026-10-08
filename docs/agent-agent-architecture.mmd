@@ -1,0 +1,88 @@
+flowchart TB
+    U[Operator]
+
+    subgraph VS["VS Code — Control Plane"]
+      V1[Selected project / worktree]
+      V2[Git diff / terminal / tasks]
+      V3[status.md + session_state.json]
+    end
+
+    subgraph WEB["Registered browser chats"]
+      G[MAIN_GPT\nChatGPT\nArchitect + executor-facing reasoning]
+      D[DEEPSEEK_REVIEW\nReviewer]
+      QW[QWEN_WEB_REVIEW\nReviewer]
+    end
+
+    LQ[LOCAL QWEN\nObserver / pattern analyst\nNever security authority]
+
+    subgraph PROC["Stateful Agent-Agent Process — P1+"]
+      SS[Session State]
+      AJ[Action Journal\naction_id = idempotency key]
+      BR[Browser Role Binding]
+      EV[Event + Provenance\nproposal -> review -> action -> verification]
+      IB[Interaction Budget\n1 in-flight/provider\nWAIT / LIMIT / PAUSE]
+      SK[Pattern -> Skill Promotion]
+      REC[Recovery\nINTERRUPTED -> VERIFYING\nor NEED_USER]
+    end
+
+    subgraph ARENA["Arena Project-Safe Core — P0"]
+      IG[Central Ingress Gate\nFAIL-CLOSED]
+      CP[Capability Policy\nALLOW / DENY / NEED_USER]
+      PB[Canonical Windows Workspace Boundary]
+      STOP[Pause / Halt / STOP]
+      BG[Project-Safe Lifecycle\nTask runner OFF\nMission scheduler OFF\nTunnel/update autostart OFF]
+    end
+
+    EX[Controlled Executor]
+    WT[Selected Git Worktree]
+    VERIFY[Tests / preflight / diagnostics]
+
+    subgraph PHASES["Implementation Gate"]
+      P0[P0-A/B/C/D\nProject-Safe Core]
+      P0PASS{P0 PASS?}
+      P1[P1 Session + Action Journal]
+      P2[P2 Browser Binding + Pacing]
+      P3[P3 Event + Provenance]
+      P4[P4 Local Qwen OBSERVE]
+      P5[P5 Second Reviewer]
+      P6[P6 Skill Promotion]
+      P7[P7 VS Code UI]
+      P0 --> P0PASS
+      P0PASS -->|YES| P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+      P0PASS -->|NO| P0
+    end
+
+    U --> VS
+    U --> BR
+    VS --> PROC
+
+    G <--> PROC
+    D <--> PROC
+    QW <--> PROC
+
+    PROC --> LQ
+    LQ --> PROC
+
+    PROC --> IG
+    IG --> CP
+    IG --> PB
+    IG --> STOP
+    IG --> BG
+
+    CP --> EX
+    PB --> EX
+    EX --> WT
+    WT --> VERIFY
+    VERIFY --> AJ
+    VERIFY --> EV
+    VERIFY --> REC
+    REC --> PROC
+
+    IB --- G
+    IB --- D
+    IB --- QW
+
+    SK -. AUTO only after operator promotion .-> PROC
+
+    RULE["SECURITY INVARIANT\nLLM may propose/review/observe.\nLLM never grants itself permission.\nDeterministic code decides ALLOW / DENY / NEED_USER."]
+    CP --- RULE

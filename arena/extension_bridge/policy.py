@@ -4,6 +4,7 @@ from __future__ import annotations
 from urllib.parse import ParseResult, urlparse
 
 from arena.autonomy import is_yolo as _is_yolo
+from arena.project_safe import project_safe_enabled
 
 _SAFE_TOOLS = {
     "browser.fetch", "browser.head", "browser.read", "browser.search",
@@ -148,7 +149,8 @@ def extension_policy_snapshot(site: dict | None = None) -> dict:
     url = site.get("url", "")
     host = _site_host(origin, url)
     trusted = _is_trusted_site(origin, url)
-    site_mode = "safe-auto-run" if trusted else "manual-confirm"
+    project_safe = project_safe_enabled()
+    site_mode = "manual-confirm" if project_safe else ("safe-auto-run" if trusted else "manual-confirm")
     return {
         "ok": True,
         # v4.97.0: YOLO flag so the chat extension / sidepanel can auto-run
@@ -172,7 +174,7 @@ def extension_policy_snapshot(site: dict | None = None) -> dict:
             "unknown_site_requires_approval": True,
             "dangerous_requires_approval": True,
             "medium_requires_approval": True,
-            "safe_auto_run_on_trusted_sites": True,
+            "safe_auto_run_on_trusted_sites": not project_safe,
         },
         "payload_examples": {
             "arena_tool": {

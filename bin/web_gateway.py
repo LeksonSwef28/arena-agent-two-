@@ -42,6 +42,10 @@ if not TOKEN and TOKEN_FILE.exists():
 # repo root goes on sys.path because this script is run standalone.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from arena.security_commands import SHELL_CONTROL_CHARS  # noqa: E402
+from arena.project_safe import (  # noqa: E402
+    project_safe_secondary_server_block_reason,
+    require_project_safe_secondary_server_disabled,
+)
 
 MCP_URL = "http://127.0.0.1:8767/mcp"
 WHITELIST_PREFIXES = (
@@ -242,6 +246,9 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        blocked = project_safe_secondary_server_block_reason("standalone Web Gateway")
+        if blocked:
+            return self._json({"ok": False, "error": blocked}, 403)
         if self.path == "/":
             return self._json({"ok": True, "service": "arena-web-gateway", "version": VERSION,
                                 "endpoints": ["/", "/tools", "/run (POST)", "/tool (POST)"],
@@ -260,6 +267,9 @@ class H(BaseHTTPRequestHandler):
         return self._json({"ok": False, "error": "not found"}, 404)
 
     def do_POST(self):
+        blocked = project_safe_secondary_server_block_reason("standalone Web Gateway")
+        if blocked:
+            return self._json({"ok": False, "error": blocked}, 403)
         if not self._auth_configured():
             return self._json({"ok": False, "error": "gateway misconfigured: no token; refusing privileged access"}, 503)
         if not self._check_auth():
@@ -300,6 +310,7 @@ def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8769)
     a = ap.parse_args()
+    require_project_safe_secondary_server_disabled("standalone Web Gateway")
     print(f"Arena Web Gateway v{VERSION} on http://{a.host}:{a.port} (auth={bool(TOKEN)})", flush=True)
     srv = ThreadingHTTPServer((a.host, a.port), H)
     try:

@@ -19,6 +19,7 @@ from arena.mcp.standalone_common import (
 )
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from arena.util import under_root as _under_root
+from arena.project_safe import project_safe_secondary_server_block_reason
 
 # The three imports above that are NOT the star import are deliberate: the path
 # jail must not depend on names a `import *` might silently stop providing.
@@ -82,6 +83,10 @@ def _jail(raw: str) -> str:
 
 def call_tool(name: str, args: dict) -> dict:
     """Диспетчер — возвращает MCP content payload."""
+    blocked = project_safe_secondary_server_block_reason("standalone MCP tool dispatcher")
+    if blocked:
+        return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {blocked}"}]}
+
     try:
         # v4.75.0: bare names (ping / echo / exec) removed.
         # Only the namespaced exec.* form is accepted.
