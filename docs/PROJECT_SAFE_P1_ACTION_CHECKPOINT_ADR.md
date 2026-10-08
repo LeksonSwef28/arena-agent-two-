@@ -1,8 +1,8 @@
 # ADR: causal action-to-checkpoint evidence
 
-Date: 2026-10-08  
-Task: T84 / audit A06  
-Status: **PROPOSED — NOT IMPLEMENTED**  
+Date: 2026-10-08
+Task: T84 / audit A06
+Status: **PROPOSED — NOT IMPLEMENTED**
 Source baseline: `29dc546dff91f63c9d005cf989d634a77d3729af` (T83)
 
 ## Goal and scope
