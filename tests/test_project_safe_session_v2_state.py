@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
@@ -141,8 +142,17 @@ def test_v1_state_writer_rejects_v2_before_read_or_write(tmp_path, monkeypatch, 
             store.write_state(_storage_state(project, store.session_id, revision=1))
         state = StateSnapshotV2.from_dict(_v2(
             _storage_state(project, store.session_id, revision=2 if existing else 1).to_dict()))
+        original_read = Path.read_bytes
+
+        def read_without_lease(path):
+            # Win32 holds this file without sharing; simulate that on Linux too.
+            if path == lease.lock_path:
+                raise PermissionError("lease has exclusive Windows sharing")
+            return original_read(path)
+
+        monkeypatch.setattr(Path, "read_bytes", read_without_lease)
         before = {str(p.relative_to(tmp_path)): p.read_bytes()
-                  for p in tmp_path.rglob("*") if p.is_file()}
+                  for p in tmp_path.rglob("*") if p.is_file() and p != lease.lock_path}
 
         def forbidden_read():
             pytest.fail("unsupported state must be rejected before reading current state")
@@ -151,8 +161,9 @@ def test_v1_state_writer_rejects_v2_before_read_or_write(tmp_path, monkeypatch, 
         with pytest.raises(StorageError, match="unsupported state schema_version"):
             store.write_state(state)
         after = {str(p.relative_to(tmp_path)): p.read_bytes()
-                 for p in tmp_path.rglob("*") if p.is_file()}
+                 for p in tmp_path.rglob("*") if p.is_file() and p != lease.lock_path}
         assert after == before
+        assert lease.held
     finally:
         lease.release()
 
