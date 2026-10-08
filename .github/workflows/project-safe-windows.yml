@@ -82,6 +82,7 @@ jobs:
             tests/test_project_safe_session_schemas.py `
             tests/test_project_safe_session_v2_models.py `
             tests/test_project_safe_session_v2_state.py `
+            tests/test_project_safe_session_v2_reference_history.py `
             tests/test_project_safe_session_storage.py `
             tests/test_project_safe_session_action_contract.py `
             tests/test_project_safe_session_action_flow_evidence.py `

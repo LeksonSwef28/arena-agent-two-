@@ -108,7 +108,8 @@ must receive a new logical action identity.
 3. To define that event prefix, journal v2 requires
    `prepared_event_ref = {event_seq, record_hash}`: the event head observed
    at each attempt's PREPARED under the shared writer gate, copied unchanged
-   to later records of that attempt. A new attempt refreshes this reference
+   to later records of that attempt. Successive PREPARED event-head sequences
+   cannot decrease under the shared writer gate. A new attempt refreshes this reference
    while keeping logical flow/predecessor anchors unchanged. The prefix includes
    creation and excludes closure. This closes preparation ownership only;
    it does not prove the time of later execution. Writer flow closure is
@@ -281,3 +282,21 @@ logical actions use different counters. Its hash, prefix membership and
 projection consistency require the next pure replay slice. This model slice
 does not prove history, checkpoint ownership or crash-gap behavior. The second
 P1 remains open; the ADR remains PROPOSED.
+
+
+## T87 implementation progress (2026-10-08)
+
+The opt-in pure validate_v2_reference_history helper reuses storage hash-chain
+validation, the action-v1 identity/transition contract and manifest hashing. It
+checks event-head/flow references, preparation-prefix closure, logical anchors,
+per-attempt prepared-head immutability, exact latest same-flow predecessor and
+workspace context. Every SUCCEEDED must resolve its explicit v2 RESOURCE_AFTER
+manifest with matching ID/hash/session/action/attempt and unique ownership.
+It returns ordered V2SuccessEvidence; it does not enumerate checkpoint storage.
+
+Inputs and outputs are model-level evidence. Session/goal/flow event semantics,
+payload/backup bytes, resource CAS, snapshot projection and writer serialization
+remain caller obligations. A closure after the prepared prefix does not prove
+terminal execution order. There is no storage/admission/recovery integration,
+so the second P1 remains open. No authentication of a fully rewritten history
+is claimed. Synthetic histories validate this helper, not production readiness.

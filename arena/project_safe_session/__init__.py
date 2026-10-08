@@ -21,6 +21,7 @@ from .v2_models import (
     StateSnapshotV2,
     WorkspaceVerificationRef,
 )
+from .v2_reference_history import V2SuccessEvidence, validate_v2_reference_history
 
 __all__ = [
     "ActionRecordRef",
@@ -30,6 +31,8 @@ __all__ = [
     "FormatVersionsV2",
     "JournalRecordV2",
     "StateSnapshotV2",
+    "V2SuccessEvidence",
+    "validate_v2_reference_history",
     "ProjectLease",
     "ProjectLeaseBusyError",
     "ProjectLeaseError",
