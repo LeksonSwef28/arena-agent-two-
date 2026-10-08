@@ -2,7 +2,12 @@
 
 Date: 2026-10-08
 Task: T84 / audit A06
-Status: **PROPOSED — NOT IMPLEMENTED**
+Status: **ACCEPTED — PARTIALLY IMPLEMENTED; RUNTIME INTEGRATION PENDING**
+Accepted: 2026-10-08 by explicit operator instruction (T89).
+Acceptance approves the contract; it does not close the second P1, enable v2
+admission, or satisfy release/full DoD.
+Integration baseline: `9484fa9429fd893f1e0c4d8d0c9fc28c6e04a754` (T88).
+Plan: [v2 integration sequence](PROJECT_SAFE_V2_INTEGRATION_PLAN.md).
 Source baseline: `29dc546dff91f63c9d005cf989d634a77d3729af` (T83)
 
 ## Goal and scope
@@ -52,9 +57,9 @@ tasks and must not be reported as solved by this ADR.
 | Enumerate checkpoint directories by action ID | No journal change | Missing/duplicate/orphan candidates; no attempt or causal ordering. Rejected. |
 | Treat effect.after_digest as workspace digest | Small diff | Changes generic semantics; supplies no exact checkpoint or backups. Rejected. |
 | Separate checkpoint-index journal | Keeps action v1 | Adds a third chain and cross-journal crash gaps. Deferred. |
-| Typed references in action v2, checkpoint v2 attempt identity | Exact objects and causal order | Requires explicit version dispatch and writer/recovery changes. Proposed. |
+| Typed references in action v2, checkpoint v2 attempt identity | Exact objects and causal order | Requires explicit version dispatch and writer/recovery changes. Accepted. |
 
-## Proposed wire contract (names are new, not existing APIs)
+## Accepted wire contract (models exist; runtime APIs require integration)
 
 Use strict versioned parsers per model family. Do not simply change the common
 `SCHEMA_VERSION` constant: that would accidentally change unrelated wire
@@ -176,7 +181,7 @@ idempotent orchestration recognizes the existing identical transition.
 
 ## Crash-gap outcomes (process crash, not a power-loss claim)
 
-All classifications below are proposed behavior, not existing RecoveryReason
+All classifications below are accepted target behavior, not existing RecoveryReason
 enum members. Map them explicitly when implementing; do not invent aliases.
 
 | Durable evidence after interruption | Required behavior |
@@ -266,7 +271,7 @@ canonical hashes. Storage parsers/admission are not switched to v2.
 State v2 format tuple/watermark, actual reference resolution, hash-chain replay,
 logical/per-attempt immutability, shared writer gate and crash recovery remain
 unimplemented. Structural model acceptance is not verification of history or
-checkpoint bytes. The second P1 remains open and this ADR stays PROPOSED.
+checkpoint bytes. The second P1 remains open and at T85 this ADR stayed PROPOSED.
 
 
 ## T86 implementation progress (2026-10-08)
@@ -281,7 +286,7 @@ The watermark is not compared to last_action_seq: journal transitions and
 logical actions use different counters. Its hash, prefix membership and
 projection consistency require the next pure replay slice. This model slice
 does not prove history, checkpoint ownership or crash-gap behavior. The second
-P1 remains open; the ADR remains PROPOSED.
+P1 remained open; at T86 the ADR remained PROPOSED.
 
 
 ## T87 implementation progress (2026-10-08)
@@ -322,3 +327,13 @@ or write-admission verdict. Corrupt unapplied success evidence fails before gap
 classification. Timestamp projections, complete session/goal/lifecycle semantics,
 payload/backup bytes, resource/current-workspace checks, historical global
 serialization and recovery integration remain open. The second P1 stays open.
+
+
+## T89 acceptance and integration plan (2026-10-08)
+
+The operator accepted this contract after T85-T88 model-level validation.
+The linked integration plan records actual call sites, sequential dependencies,
+read-only recovery, restricted admission and rollback once v2 data exists.
+Historical PROPOSED statements above describe their original implementation
+blocks, not the current ADR status. No runtime/schema/workflow bytes change
+in T89. Second P1, executor integration and full DoD remain open.
