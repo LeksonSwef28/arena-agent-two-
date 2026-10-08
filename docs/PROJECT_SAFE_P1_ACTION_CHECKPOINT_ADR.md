@@ -300,3 +300,25 @@ remain caller obligations. A closure after the prepared prefix does not prove
 terminal execution order. There is no storage/admission/recovery integration,
 so the second P1 remains open. No authentication of a fully rewritten history
 is claimed. Synthetic histories validate this helper, not production readiness.
+
+
+## T88 implementation progress (2026-10-08)
+
+The opt-in pure assess_v2_snapshot_projection helper validates all references
+through T87, then compares action/workspace/active-flow fields at the exact
+last_applied_action_ref and last_event_seq prefixes. It binds session baseline
+and last-verified checkpoint ID/digest/head, terminal/pending fields and active
+expected-current. Applied preparation references must fit the event prefix.
+
+Execution counters preserve existing v1 semantics: among latest records per
+logical action, last_action_seq/last_terminal_action_id identify the terminal
+action with highest action_seq. A retried FAILED action whose latest marker is
+PREPARED is pending, not terminal. journal_seq is never substituted for that
+counter. More than one pending action at the snapshot prefix is rejected.
+
+V2SnapshotProjection returns explicit unapplied action/event suffixes and
+snapshot_behind. It never repairs state and exposes no clean RecoveryAssessment
+or write-admission verdict. Corrupt unapplied success evidence fails before gap
+classification. Timestamp projections, complete session/goal/lifecycle semantics,
+payload/backup bytes, resource/current-workspace checks, historical global
+serialization and recovery integration remain open. The second P1 stays open.
