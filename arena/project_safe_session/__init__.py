@@ -11,8 +11,19 @@ from .paths import (
     project_fingerprint,
     resolve_project_safe_state_root,
 )
+from .v2_models import (
+    ActionRecordRef,
+    CheckpointManifestV2,
+    EventRecordRef,
+    JournalRecordV2,
+    WorkspaceVerificationRef,
+)
 
 __all__ = [
+    "ActionRecordRef",
+    "CheckpointManifestV2",
+    "EventRecordRef",
+    "JournalRecordV2",
     "ProjectLease",
     "ProjectLeaseBusyError",
     "ProjectLeaseError",
@@ -20,6 +31,7 @@ __all__ = [
     "default_project_safe_state_root",
     "project_fingerprint",
     "resolve_project_safe_state_root",
+    "WorkspaceVerificationRef",
 ]
 
 from .canonical import canonical_json_bytes, canonical_sha256, strict_json_loads

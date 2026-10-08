@@ -435,6 +435,8 @@ class ProjectSafeSessionStore:
         """Durably publish backups first and manifest last."""
         with self._lock:
             self._require_lease()
+            if manifest.schema_version != SCHEMA_VERSION:
+                raise CheckpointIntegrityError("unsupported checkpoint schema_version for v1 storage")
             if manifest.session_id != self.session_id:
                 raise CheckpointIntegrityError("checkpoint session_id does not match store")
             try:

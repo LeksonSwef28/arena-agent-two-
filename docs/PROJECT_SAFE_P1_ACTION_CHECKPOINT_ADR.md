@@ -242,7 +242,23 @@ checkpoint_models.py, checkpoint_contract.py, storage.py, durable_io.py,
 state_models.py, coordinator.py, flow_evidence.py, action_flow_evidence.py,
 and PROJECT_SAFE_P1_A0_DECISIONS.md under this repository.
 
-This commit changes documentation only. No proposed parser, writer, replay or
-crash behavior has been executed. The baseline T83 Windows push run
+The T84 commit changed documentation only. At T84 no proposed parser, writer,
+replay or crash behavior had been executed. The baseline T83 Windows push run
 37646224541 passed 385 tests on its exact runtime SHA; that result is not a
 Windows validation of a new documentation commit or of this proposed contract.
+
+
+## T85 implementation progress (2026-10-08)
+
+The first model slice adds EventRecordRef, ActionRecordRef,
+WorkspaceVerificationRef, JournalRecordV2 and CheckpointManifestV2 as opt-in
+exports. Strict v2 envelopes reuse v1 common-field validation; global
+SCHEMA_VERSION remains 1. The existing v1 checkpoint writer now rejects an
+unsupported schema before any write. Tests cover local reference shape/order,
+SUCCEEDED-only verification, attempt presence/kind, v1 compatibility and pinned
+canonical hashes. Storage parsers/admission are not switched to v2.
+
+State v2 format tuple/watermark, actual reference resolution, hash-chain replay,
+logical/per-attempt immutability, shared writer gate and crash recovery remain
+unimplemented. Structural model acceptance is not verification of history or
+checkpoint bytes. The second P1 remains open and this ADR stays PROPOSED.
