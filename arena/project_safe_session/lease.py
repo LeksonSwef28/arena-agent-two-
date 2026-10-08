@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import errno
 import os
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -134,51 +137,73 @@ class ProjectLease:
         self.state_root: Path | None = None
         self.lock_path: Path | None = None
         self._native: Any | None = None
+        self._owner_lock = threading.RLock()
+        self.owner_generation = 0
+        self._operation_depth = 0
 
     @property
     def held(self) -> bool:
         return self._native is not None
 
+    @contextmanager
+    def operation(self, *, validate: Callable[[], None] | None = None) -> Iterator[None]:
+        """Coherent owner operation; release waits and cannot nest inside it."""
+        with self._owner_lock:
+            if validate is not None:
+                validate()
+            if not self.held:
+                raise ProjectLeaseError("a live ProjectLease is required")
+            self._operation_depth += 1
+            try:
+                yield
+            finally:
+                self._operation_depth -= 1
+
     def acquire(self) -> "ProjectLease":
-        if self.held:
-            raise ProjectLeaseError("project lease object is already held")
+        with self._owner_lock:
+            if self.held:
+                raise ProjectLeaseError("project lease object is already held")
 
-        state_root = resolve_project_safe_state_root(
-            self.project_root,
-            self.configured_state_root,
-            create=True,
-        )
-        project_dir = state_root / "projects" / project_fingerprint(self.project_root)
-        try:
-            project_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise ProjectLeaseError(f"cannot create project lease directory: {exc}") from exc
+            state_root = resolve_project_safe_state_root(
+                self.project_root,
+                self.configured_state_root,
+                create=True,
+            )
+            project_dir = state_root / "projects" / project_fingerprint(self.project_root)
+            try:
+                project_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise ProjectLeaseError(f"cannot create project lease directory: {exc}") from exc
 
-        lock_path = project_dir / "project.lease"
-        try:
-            native = _acquire_windows(lock_path) if os.name == "nt" else _acquire_posix(lock_path)
-        except ProjectLeaseBusyError:
-            raise
-        except OSError as exc:
-            raise ProjectLeaseError(f"cannot acquire project lease: {exc}") from exc
+            lock_path = project_dir / "project.lease"
+            try:
+                native = _acquire_windows(lock_path) if os.name == "nt" else _acquire_posix(lock_path)
+            except ProjectLeaseBusyError:
+                raise
+            except OSError as exc:
+                raise ProjectLeaseError(f"cannot acquire project lease: {exc}") from exc
 
-        self.state_root = state_root
-        self.lock_path = lock_path
-        self._native = native
-        return self
+            self.state_root = state_root
+            self.lock_path = lock_path
+            self._native = native
+            self.owner_generation += 1
+            return self
 
     def release(self) -> None:
-        native = self._native
-        if native is None:
-            return
-        self._native = None
-        try:
-            if os.name == "nt":
-                _release_windows(int(native))
-            else:
-                _release_posix(int(native))
-        except OSError as exc:
-            raise ProjectLeaseError(f"cannot release project lease: {exc}") from exc
+        with self._owner_lock:
+            if self._operation_depth:
+                raise ProjectLeaseError("cannot release lease during an owner operation")
+            native = self._native
+            if native is None:
+                return
+            self._native = None
+            try:
+                if os.name == "nt":
+                    _release_windows(int(native))
+                else:
+                    _release_posix(int(native))
+            except OSError as exc:
+                raise ProjectLeaseError(f"cannot release project lease: {exc}") from exc
 
     def __enter__(self) -> "ProjectLease":
         return self.acquire()

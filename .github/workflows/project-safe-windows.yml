@@ -78,6 +78,7 @@ jobs:
             tests/test_project_safe_git_boundary.py `
             tests/test_project_safe_secondary_servers.py `
             tests/test_project_safe_launcher.py `
+            tests/test_project_safe_session_owner_gate.py `
             tests/test_project_safe_session_foundation.py `
             tests/test_project_safe_session_schemas.py `
             tests/test_project_safe_session_v2_models.py `

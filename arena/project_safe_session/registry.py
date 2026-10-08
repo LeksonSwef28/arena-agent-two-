@@ -8,6 +8,7 @@ from typing import Any
 from .canonical import canonical_json_bytes, strict_json_loads
 from .durable_io import durable_replace
 from .lease import ProjectLease
+from .owner_gate import owner_serialized
 from .paths import project_fingerprint
 from .schema_types import SCHEMA_VERSION
 from .schema_utils import (
@@ -97,13 +98,15 @@ class ProjectRegistryStore:
         if not lease.held or lease.lock_path is None:
             raise RegistryError("a live ProjectLease is required")
         self.lease = lease
+        self._owner_generation = lease.owner_generation
         self.project_fingerprint = project_fingerprint(lease.project_root)
         self.path = lease.lock_path.parent / "registry.json"
 
     def _require_lease(self) -> None:
-        if not self.lease.held:
+        if not self.lease.held or self.lease.owner_generation != self._owner_generation:
             raise RegistryError("project lease is no longer held")
 
+    @owner_serialized
     def read(self) -> ProjectRegistry | None:
         self._require_lease()
         if not self.path.exists():
@@ -117,6 +120,7 @@ class ProjectRegistryStore:
             raise RegistryError("registry project_fingerprint does not match leased project")
         return registry
 
+    @owner_serialized
     def write(
         self,
         registry: ProjectRegistry,
@@ -140,6 +144,7 @@ class ProjectRegistryStore:
             )
         durable_replace(self.path, canonical_json_bytes(registry.to_dict()) + b"\n")
 
+    @owner_serialized
     def register_session(self, session_id: str, *, at: str) -> ProjectRegistry:
         self._require_lease()
         checked = uuid4_value(session_id, "session_id")
@@ -175,6 +180,7 @@ class ProjectRegistryStore:
         self.write(next_registry, expected_current_revision=current.registry_revision)
         return next_registry
 
+    @owner_serialized
     def activate_session(self, session_id: str, *, at: str) -> ProjectRegistry:
         self._require_lease()
         checked = uuid4_value(session_id, "session_id")
@@ -200,6 +206,7 @@ class ProjectRegistryStore:
         self.write(next_registry, expected_current_revision=current.registry_revision)
         return next_registry
 
+    @owner_serialized
     def clear_active_session(self, session_id: str, *, at: str) -> ProjectRegistry:
         self._require_lease()
         checked = uuid4_value(session_id, "session_id")

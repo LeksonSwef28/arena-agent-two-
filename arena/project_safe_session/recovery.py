@@ -13,6 +13,7 @@ from .flow_evidence import flow_history_mismatch
 from .lease import ProjectLease
 from .lifecycle_evidence import lifecycle_evidence_mismatch
 from .models import StateSnapshot
+from .owner_gate import owner_serialized
 from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import (
     ActionState,
@@ -25,6 +26,7 @@ from .schema_utils import SchemaError, boolean_value, enum_value, exact_keys, in
 from .storage import (
     CheckpointIntegrityError,
     JournalCorruptionError,
+    LeaseRequiredError,
     PayloadIntegrityError,
     ProjectSafeSessionStore,
     StorageError,
@@ -144,7 +146,12 @@ class ProjectSafeRecoveryManager:
         if not lease.held:
             raise RecoveryOperationError("a live ProjectLease is required")
         self.lease = lease
+        self._owner_generation = lease.owner_generation
         self.registry = ProjectRegistryStore(lease)
+
+    def _require_lease(self) -> None:
+        if not self.lease.held or self.lease.owner_generation != self._owner_generation:
+            raise LeaseRequiredError("a live ProjectLease with the current owner is required")
 
     def _assessment(
         self,
@@ -162,6 +169,7 @@ class ProjectSafeRecoveryManager:
             workspace_checkpoint_id=checkpoint_id,
         )
 
+    @owner_serialized
     def assess(self, session_id: str) -> RecoveryAssessment:
         store = ProjectSafeSessionStore(self.lease, session_id)
 
@@ -416,6 +424,7 @@ class ProjectSafeRecoveryManager:
 
         return RecoveryAssessment.clean()
 
+    @owner_serialized
     def enter_interrupted_recovery(
         self,
         session_id: str,

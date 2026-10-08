@@ -25,6 +25,7 @@ from .durable_io import durable_append, durable_replace
 from .event_models import SessionEventRecord
 from .lease import ProjectLease
 from .models import CheckpointManifest, JournalRecord, StateSnapshot
+from .owner_gate import owner_serialized
 from .paths import project_fingerprint
 from .schema_types import SCHEMA_VERSION
 from .schema_utils import SchemaError, exact_keys, relative_path_value, sha256_value, uuid4_value
@@ -177,6 +178,7 @@ class ProjectSafeSessionStore:
         checked_session = uuid4_value(session_id, "session_id")
         assert checked_session is not None
         self.lease = lease
+        self._owner_generation = lease.owner_generation
         self.session_id = checked_session
         self.project_fingerprint = project_fingerprint(lease.project_root)
         self.project_dir = lease.lock_path.parent
@@ -189,9 +191,10 @@ class ProjectSafeSessionStore:
         self._lock = threading.RLock()
 
     def _require_lease(self) -> None:
-        if not self.lease.held:
+        if not self.lease.held or self.lease.owner_generation != self._owner_generation:
             raise LeaseRequiredError("project lease is no longer held")
 
+    @owner_serialized
     def read_state(self) -> StateSnapshot | None:
         self._require_lease()
         if not self.state_path.exists():
@@ -207,6 +210,7 @@ class ProjectSafeSessionStore:
             raise StorageError("state.json project_fingerprint does not match leased project")
         return state
 
+    @owner_serialized
     def write_state(
         self,
         state: StateSnapshot,
@@ -235,6 +239,7 @@ class ProjectSafeSessionStore:
 
             durable_replace(self.state_path, canonical_json_bytes(state.to_dict()) + b"\n")
 
+    @owner_serialized
     def read_actions(self) -> JournalReadResult[JournalRecord]:
         self._require_lease()
         result = _read_journal(
@@ -256,6 +261,7 @@ class ProjectSafeSessionStore:
             seen.add(record.action_id)
         return result
 
+    @owner_serialized
     def read_events(self) -> JournalReadResult[SessionEventRecord]:
         self._require_lease()
         return _read_journal(
@@ -286,6 +292,7 @@ class ProjectSafeSessionStore:
                 f"expected {record.input.args_hash}, got {semantic_hash}"
             )
 
+    @owner_serialized
     def append_action(self, draft: Mapping[str, Any]) -> JournalRecord:
         with self._lock:
             self._require_lease()
@@ -349,6 +356,7 @@ class ProjectSafeSessionStore:
             )
             return record
 
+    @owner_serialized
     def append_event(self, draft: Mapping[str, Any]) -> SessionEventRecord:
         with self._lock:
             self._require_lease()
@@ -381,6 +389,7 @@ class ProjectSafeSessionStore:
         assert checked is not None
         return self.checkpoints_dir / checked
 
+    @owner_serialized
     def read_checkpoint(self, checkpoint_id: str) -> CheckpointManifest:
         self._require_lease()
         checkpoint_dir = self._checkpoint_dir(checkpoint_id)
@@ -429,6 +438,7 @@ class ProjectSafeSessionStore:
                 )
         return manifest
 
+    @owner_serialized
     def write_checkpoint(
         self,
         manifest: CheckpointManifest,
@@ -504,6 +514,7 @@ class ProjectSafeSessionStore:
             )
             self.read_checkpoint(manifest.checkpoint_id)
 
+    @owner_serialized
     def write_action_input(
         self,
         action_id: str,
@@ -515,6 +526,7 @@ class ProjectSafeSessionStore:
         relative, payload_sha = self.write_action_payload(action_id, "input.json", payload)
         return relative, args_hash, payload_sha
 
+    @owner_serialized
     def write_action_payload(self, action_id: str, name: str, data: bytes) -> tuple[str, str]:
         """Persist immutable input/result bytes and return (relative_ref, sha256)."""
         with self._lock:
@@ -540,6 +552,7 @@ class ProjectSafeSessionStore:
             durable_replace(path, data)
             return relative, digest
 
+    @owner_serialized
     def read_action_payload(self, relative_ref: str, expected_sha256: str) -> bytes:
         self._require_lease()
         relative = relative_path_value(relative_ref, "payload_ref")

@@ -337,3 +337,19 @@ read-only recovery, restricted admission and rollback once v2 data exists.
 Historical PROPOSED statements above describe their original implementation
 blocks, not the current ADR status. No runtime/schema/workflow bytes change
 in T89. Second P1, executor integration and full DoD remain open.
+
+
+## T90 shared owner gate (2026-10-08)
+
+ProjectLease now owns a reentrant operation gate. Store public reads/writes,
+registry read-modify-write calls, coordinator lifecycle transactions and full
+recovery assessment/operations participate before instance-local RLocks. Lease
+acquire/release serialize on the same gate; release cannot nest inside an owner
+operation. An owner generation prevents old bound objects from resuming after
+release/reacquire. Independent projects remain independent.
+
+This gate only serializes participating calls within one live lease owner.
+It does not exclude external editors, solve multiple-state-root ownership A07,
+provide power-loss durability, or implement the future file executor transaction.
+Existing crash gaps remain recovery-required, not automatically repaired.
+Storage versions/writers/admission remain v1; the second P1 is still open.

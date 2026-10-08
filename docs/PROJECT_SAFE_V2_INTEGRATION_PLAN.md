@@ -1,7 +1,7 @@
 # Project-safe v2 integration plan
 
 Date: 2026-10-08. Task: T89. Status: accepted implementation sequence;
-T90-T95 are planned, not executed. Contract: [accepted T84 ADR](PROJECT_SAFE_P1_ACTION_CHECKPOINT_ADR.md).
+T90 owner gate implemented in its own block; T91-T95 remain planned. Contract: [accepted T84 ADR](PROJECT_SAFE_P1_ACTION_CHECKPOINT_ADR.md).
 Source baseline: `9484fa9429fd893f1e0c4d8d0c9fc28c6e04a754` (T88).
 
 ## Objective, constraints and completion boundary

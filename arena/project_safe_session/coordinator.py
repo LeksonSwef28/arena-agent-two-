@@ -16,10 +16,11 @@ from .canonical import canonical_sha256
 from .checkpoint_contract import build_checkpoint_manifest
 from .lease import ProjectLease
 from .models import StateSnapshot
+from .owner_gate import owner_serialized
 from .paths import project_fingerprint
 from .registry import ProjectRegistryStore, RegistryError
 from .schema_types import BrowserRole, LifecycleStatus, RequestedMode
-from .storage import ProjectSafeSessionStore, StateRevisionError
+from .storage import LeaseRequiredError, ProjectSafeSessionStore, StateRevisionError
 from .workspace import (
     compute_workspace_digest_v1,
     workspace_is_clean_v1,
@@ -85,6 +86,7 @@ class ProjectSafeSessionCoordinator:
         if not lease.held:
             raise SessionCoordinatorError("a live ProjectLease is required")
         self.lease = lease
+        self._owner_generation = lease.owner_generation
         self.project_root = Path(lease.project_root).expanduser().resolve(strict=True)
         self.project_fingerprint = project_fingerprint(self.project_root)
         self.registry = ProjectRegistryStore(lease)
@@ -92,12 +94,18 @@ class ProjectSafeSessionCoordinator:
     def _store(self, session_id: str) -> ProjectSafeSessionStore:
         return ProjectSafeSessionStore(self.lease, session_id)
 
+    def _require_lease(self) -> None:
+        if not self.lease.held or self.lease.owner_generation != self._owner_generation:
+            raise LeaseRequiredError("a live ProjectLease with the current owner is required")
+
+    @owner_serialized
     def read_session(self, session_id: str) -> StateSnapshot:
         state = self._store(session_id).read_state()
         if state is None:
             raise SessionCoordinatorError(f"session state not found: {session_id}")
         return state
 
+    @owner_serialized
     def _write_event_state(
         self,
         store: ProjectSafeSessionStore,
@@ -124,6 +132,7 @@ class ProjectSafeSessionCoordinator:
         )
         return next_state
 
+    @owner_serialized
     def create_session(
         self,
         *,
@@ -250,6 +259,7 @@ class ProjectSafeSessionCoordinator:
         self.registry.register_session(session, at=timestamp)
         return state
 
+    @owner_serialized
     def activate_session(self, session_id: str, *, at: str | None = None) -> StateSnapshot:
         timestamp = at or _now()
         store = self._store(session_id)
@@ -303,6 +313,7 @@ class ProjectSafeSessionCoordinator:
             ],
         )
 
+    @owner_serialized
     def pause_session(self, session_id: str, *, at: str | None = None) -> StateSnapshot:
         timestamp = at or _now()
         store = self._store(session_id)
@@ -338,6 +349,7 @@ class ProjectSafeSessionCoordinator:
         self.registry.clear_active_session(session_id, at=timestamp)
         return next_state
 
+    @owner_serialized
     def start_flow(self, session_id: str, *, at: str | None = None) -> StateSnapshot:
         timestamp = at or _now()
         store = self._store(session_id)
@@ -440,6 +452,7 @@ class ProjectSafeSessionCoordinator:
         }
         return self._write_event_state(store, state, raw, events)
 
+    @owner_serialized
     def close_flow(
         self,
         session_id: str,
@@ -476,6 +489,7 @@ class ProjectSafeSessionCoordinator:
             ],
         )
 
+    @owner_serialized
     def refine_goal(
         self,
         session_id: str,
