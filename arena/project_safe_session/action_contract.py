@@ -63,13 +63,14 @@ def compute_args_hash(canonical_args: Mapping[str, Any]) -> str:
 
 def compute_action_id(
     *,
-    session_id: str,
-    proposal_id: str,
-    proposal_digest: str,
-    action_type: str,
-    effect_target_fingerprint: str,
-    args_hash: str,
+    session_id: object,
+    proposal_id: object,
+    proposal_digest: object,
+    action_type: object,
+    effect_target_fingerprint: object,
+    args_hash: object,
 ) -> str:
+    """Validate untrusted identity fields before hashing the action identity."""
     checked_session = uuid4_value(session_id, "session_id")
     checked_proposal_digest = sha256_value(proposal_digest, "proposal_digest")
     checked_target = sha256_value(effect_target_fingerprint, "effect_target_fingerprint")

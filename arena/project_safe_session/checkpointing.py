@@ -5,12 +5,12 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+from .action_models import FileResourceBefore
 from .checkpoint_contract import (
     CheckpointContractError,
     build_checkpoint_manifest,
     checkpoint_resource_from_file_before,
 )
-from .action_models import FileResourceBefore
 from .checkpoint_models import CheckpointManifest
 from .paths import project_fingerprint
 from .storage import ProjectSafeSessionStore

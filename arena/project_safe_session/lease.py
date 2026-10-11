@@ -42,7 +42,8 @@ def _acquire_windows(path: Path) -> int:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # These ctypes APIs exist only on Windows; resolve them on the Windows path.
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
     create_file.argtypes = [
         wintypes.LPCWSTR,
@@ -71,7 +72,7 @@ def _acquire_windows(path: Path) -> int:
         None,
     )
     if handle == invalid_handle:
-        error = ctypes.get_last_error()
+        error = getattr(ctypes, "get_last_error")()
         if error in {32, 33}:  # ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION
             raise ProjectLeaseBusyError(
                 "project lease is already held by another live process",
@@ -85,12 +86,12 @@ def _release_windows(handle: int) -> None:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
     close_handle = kernel32.CloseHandle
     close_handle.argtypes = [wintypes.HANDLE]
     close_handle.restype = wintypes.BOOL
     if not close_handle(wintypes.HANDLE(handle)):
-        error = ctypes.get_last_error()
+        error = getattr(ctypes, "get_last_error")()
         raise OSError(error, "CloseHandle failed for project lease")
 
 

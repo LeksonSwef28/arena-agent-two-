@@ -110,7 +110,7 @@ def build_checkpoint_manifest(
         checked_kind = kind
 
     resource_list = list(resources)
-    raw = {
+    raw: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "checkpoint_id": checked_checkpoint,
         "session_id": checked_session,

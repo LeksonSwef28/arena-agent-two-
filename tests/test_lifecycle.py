@@ -1,16 +1,16 @@
 """Lifecycle extraction tests."""
 import asyncio
 import sys
-from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 from aiohttp import web
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import unified_bridge as ub  # noqa: E402
 import arena.lifecycle as lifecycle_module  # noqa: E402
+import unified_bridge as ub  # noqa: E402
 from arena.app_keys import (  # noqa: E402
     APP_CFG,
     APP_FILE_WATCH_LOOP,

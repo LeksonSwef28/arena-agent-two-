@@ -18,7 +18,6 @@ from arena.project_safe import (
     require_project_safe_secondary_server_disabled,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

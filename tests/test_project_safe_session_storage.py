@@ -1,7 +1,6 @@
 """P1-A3 durable state, payload, and strict JSONL storage tests."""
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
 
@@ -14,12 +13,12 @@ from arena.project_safe_session import (
     ProjectLease,
     ProjectSafeSessionStore,
     StateRevisionError,
-    compute_action_id,
-    compute_args_hash,
-    compute_attempt_id,
     StateSnapshot,
     StorageError,
     TruncatedLastRecordError,
+    compute_action_id,
+    compute_args_hash,
+    compute_attempt_id,
     project_fingerprint,
     strict_json_loads,
 )

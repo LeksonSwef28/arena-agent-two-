@@ -15,7 +15,6 @@ from arena.project_safe_session import (
     ResourceTooLargeError,
     UnsupportedRepoLayoutError,
     WorkspaceDriftError,
-    WorkspaceManifest,
     WorkspaceUnstableError,
     assert_flow_workspace_guard,
     capture_file_resource_before,

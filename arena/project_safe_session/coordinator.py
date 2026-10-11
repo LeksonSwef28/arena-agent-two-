@@ -18,7 +18,7 @@ from .lease import ProjectLease
 from .models import StateSnapshot
 from .owner_gate import owner_serialized
 from .paths import project_fingerprint
-from .registry import ProjectRegistryStore, RegistryError
+from .registry import ProjectRegistryStore
 from .schema_types import BrowserRole, LifecycleStatus, RequestedMode
 from .storage import LeaseRequiredError, ProjectSafeSessionStore, StateRevisionError
 from .workspace import (

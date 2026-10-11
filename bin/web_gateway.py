@@ -41,11 +41,11 @@ if not TOKEN and TOKEN_FILE.exists():
 # sharing the same metacharacter set the bridge's exec policy uses. The
 # repo root goes on sys.path because this script is run standalone.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from arena.security_commands import SHELL_CONTROL_CHARS  # noqa: E402
 from arena.project_safe import (  # noqa: E402
     project_safe_secondary_server_block_reason,
     require_project_safe_secondary_server_disabled,
 )
+from arena.security_commands import SHELL_CONTROL_CHARS  # noqa: E402
 
 MCP_URL = "http://127.0.0.1:8767/mcp"
 WHITELIST_PREFIXES = (

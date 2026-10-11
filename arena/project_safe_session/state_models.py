@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .schema_types import (
+    SCHEMA_VERSION,
     BindingStatus,
     BrowserRole,
     LifecyclePhase,
@@ -12,7 +13,6 @@ from .schema_types import (
     LifecycleStatus,
     RecoveryReason,
     RequestedMode,
-    SCHEMA_VERSION,
 )
 from .schema_utils import (
     SchemaError,

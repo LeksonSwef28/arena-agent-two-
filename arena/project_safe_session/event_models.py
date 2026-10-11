@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .schema_types import EventType, SCHEMA_VERSION
+from .schema_types import SCHEMA_VERSION, EventType
 from .schema_utils import (
     SchemaError,
     enum_value,

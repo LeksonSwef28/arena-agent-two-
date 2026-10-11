@@ -9,6 +9,7 @@ from .action_models import (
 from .checkpoint_models import CheckpointManifest, CheckpointResource
 from .event_models import SessionEventRecord
 from .schema_types import (
+    SCHEMA_VERSION,
     ActionState,
     BindingStatus,
     BrowserRole,
@@ -22,7 +23,6 @@ from .schema_types import (
     RequestedMode,
     ResourceType,
     RiskClass,
-    SCHEMA_VERSION,
 )
 from .schema_utils import SchemaError
 from .state_models import (

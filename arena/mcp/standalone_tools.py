@@ -18,8 +18,8 @@ from arena.mcp.standalone_common import (
     time,
 )
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
-from arena.util import under_root as _under_root
 from arena.project_safe import project_safe_secondary_server_block_reason
+from arena.util import under_root as _under_root
 
 # The three imports above that are NOT the star import are deliberate: the path
 # jail must not depend on names a `import *` might silently stop providing.

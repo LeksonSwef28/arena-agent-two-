@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from .schema_types import (
+    SCHEMA_VERSION,
     ActionState,
     EffectStatus,
     ResourceType,
     RiskClass,
-    SCHEMA_VERSION,
 )
 from .schema_utils import (
     SchemaError,

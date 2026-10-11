@@ -45,7 +45,6 @@ from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
 from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_ocr import handle_ocr_tool
 from arena.mcp.tool_plan import handle_plan_tool
-from arena.project_safe import filter_project_safe_tools, project_safe_block_reason
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.mcp.tool_relay import handle_relay_tool
 from arena.mcp.tool_runtime import handle_runtime_tool
@@ -55,6 +54,7 @@ from arena.mcp.tool_ship import handle_ship_tool
 from arena.mcp.tool_utils import make_run_local, make_run_sd, text_content
 from arena.mcp.tool_watch import handle_watch_tool
 from arena.mcp.tool_workbench import handle_workbench_tool
+from arena.project_safe import filter_project_safe_tools, project_safe_block_reason
 
 
 @dataclass(frozen=True)
