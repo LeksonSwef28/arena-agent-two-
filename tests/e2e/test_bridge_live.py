@@ -69,9 +69,11 @@ def _free_port() -> int:
 class BridgeClient:
     """Minimal stdlib HTTP client with the bridge auth header baked in."""
 
-    def __init__(self, port: int, token: str | None):
+    def __init__(self, port: int, token: str | None, workspace_root: Path, token_file: Path):
         self.port = port
         self.token = token
+        self.workspace_root = workspace_root
+        self.token_file = token_file
 
     def request(self, method: str, path: str, body: object = None,
                 extra_headers: dict[str, str] | None = None,
@@ -117,15 +119,18 @@ def bridge(tmp_path_factory):
     # includes -_), and argparse then eats the value as an unknown option
     # ("argument --token: expected one argument") -> flaky rc=2 startups.
     token = "e2e-" + secrets.token_urlsafe(24)
+    token_file = tmp_path_factory.mktemp("bridge-state") / "token.txt"
+    workspace_root = tmp_path_factory.mktemp("bridge-workspace")
+    subprocess.run(["git", "init", str(workspace_root)], check=True, capture_output=True)
     argv = _server_argv() + [
         "serve", "--bind", "127.0.0.1", "--port", str(port),
-        "--token", token, "--root", str(REPO_ROOT),
+        "--token", token, "--token-file", str(token_file), "--root", str(workspace_root),
     ]
     proc = subprocess.Popen(
         argv, cwd=str(tmp_path_factory.mktemp("bridge-cwd")),
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
-    client = BridgeClient(port, token)
+    client = BridgeClient(port, token, workspace_root, token_file)
     deadline = time.monotonic() + STARTUP_TIMEOUT_S
     last_err: Exception | None = None
     while time.monotonic() < deadline:
@@ -268,7 +273,7 @@ def test_mcp_full_handshake_and_tool_surface(bridge):
 def test_fs_write_read_roundtrip_through_tool_executor(bridge):
     """Real observable work, not a mock: the server process writes a file
     to disk and reads it back through the same MCP transport."""
-    probe = Path.home() / f"arena-e2e-probe-{secrets.token_hex(4)}.txt"
+    probe = bridge.workspace_root / f"arena-e2e-probe-{secrets.token_hex(4)}.txt"
     payload = f"arena-e2e-{secrets.token_hex(8)}"
     try:
         status, body, _, _ = bridge.post_json("/mcp", {
@@ -293,19 +298,22 @@ def test_fs_write_read_roundtrip_through_tool_executor(bridge):
         probe.unlink(missing_ok=True)
 
 
-def test_fs_jail_blocks_paths_outside_home(bridge):
-    """Security fail-closed gate: the file jail must refuse paths outside
-    the operator's home directory even when --root points elsewhere."""
-    status, body, _, _ = bridge.post_json("/mcp", {
-        "jsonrpc": "2.0", "id": 22, "method": "tools/call",
-        "params": {"name": "fs.write",
-                   "arguments": {"path": "/etc/arena-e2e-must-not-exist",
-                                 "content": "x"}}})
-    assert status == 200  # tool-level refusal lives in the result envelope
-    result = body.get("result") or {}
-    assert result.get("isError") is True
-    assert "BLOCKED" in (result.get("content") or [{}])[0].get("text", "")
-    assert not Path("/etc/arena-e2e-must-not-exist").exists()
+def test_fs_jail_blocks_paths_outside_workspace(bridge):
+    """A writable sibling must remain outside the configured file jail."""
+    probe = bridge.workspace_root.parent / f"arena-e2e-outside-{secrets.token_hex(4)}.txt"
+    assert not probe.exists()
+    try:
+        status, body, _, _ = bridge.post_json("/mcp", {
+            "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+            "params": {"name": "fs.write",
+                       "arguments": {"path": str(probe), "content": "x"}}})
+        assert status == 200
+        result = body.get("result") or {}
+        assert result.get("isError") is True
+        assert "BLOCKED" in (result.get("content") or [{}])[0].get("text", "")
+        assert not probe.exists()
+    finally:
+        probe.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------ negative / abuse
@@ -375,7 +383,7 @@ def test_token_regeneration_rotates_the_live_bearer_and_writes_the_file(bridge):
     the new credential just like a real operator would after clicking
     "Restart Bridge".
     """
-    token_file = REPO_ROOT / "token.txt"
+    token_file = bridge.token_file
     previous = token_file.read_bytes() if token_file.exists() else None
     previous_mode = token_file.stat().st_mode & 0o777 if token_file.exists() else None
     old_token = bridge.token
