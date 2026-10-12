@@ -121,6 +121,44 @@ ALLOWLIST: dict[str, str] = {
         "happened upstream via @authed; is_agent False means 'authenticated "
         "as master', not 'unauthenticated'."
     ),
+    "arena/project_safe_session/action_models.py:52:gated-refusal": (
+        "exists is a strictly parsed boolean, not a credential. Existing files require "
+        "a non-null validated SHA-256; absent files must have null content_sha256 via "
+        "the following branch. Empty digest strings are rejected by sha256_value before "
+        "this condition. FileResourceBefore absence/existence tests cover both cases. "
+        "See docs/PROJECT_SAFE_FAILOPEN_REVIEW_2026-10-12.md."
+    ),
+    "arena/project_safe_session/checkpoint_contract.py:44:gated-refusal": (
+        "The boolean is file existence. Existing resources require exact bytes and a "
+        "digest match; absent resources require backup_bytes is None and emit an "
+        "explicit absent checkpoint resource. Empty bytes are real existing-file "
+        "content with SHA-256, never an opt-out. Direct builder contract tests cover "
+        "missing, changed, empty and absent payloads. See "
+        "docs/PROJECT_SAFE_FAILOPEN_REVIEW_2026-10-12.md."
+    ),
+    "arena/project_safe_session/checkpoint_models.py:53:gated-refusal": (
+        "existed is a strictly parsed boolean. Present resources already require "
+        "content, backup reference and backup digest above; absent resources must have "
+        "null backup fields and zero size. Both SHA-256 fields are validated before "
+        "equality. Empty hashes cannot skip integrity validation. See "
+        "docs/PROJECT_SAFE_FAILOPEN_REVIEW_2026-10-12.md."
+    ),
+    "arena/project_safe_session/phase_recovery_evidence.py:21:gated-refusal": (
+        "detections is the list of RECOVERY_DETECTED events, not a hash or secret. No "
+        "detections is normal outside recovery; the elif branch refuses any recovery "
+        "snapshot without its event. Present events require a valid "
+        "interrupted_action_id and matching snapshot/action/flow evidence. Recovery "
+        "event and unlinked-snapshot tests cover both directions. See "
+        "docs/PROJECT_SAFE_FAILOPEN_REVIEW_2026-10-12.md."
+    ),
+    "arena/project_safe_session/v2_snapshot_projection.py:104:gated-refusal": (
+        "pending is the list of nonterminal actions, not expected_digest. An empty list "
+        "means no pending action to check; pending_action_id must independently match "
+        "that absence. Present actions have required validated context hashes and must "
+        "match the expected flow digest. Flow expected-current equality is "
+        "unconditional above; pending-context and no-action drift tests reject "
+        "inconsistencies. See docs/PROJECT_SAFE_FAILOPEN_REVIEW_2026-10-12.md."
+    ),
     "arena/system/handlers.py:271:gated-refusal": (
         "Same pattern as handlers_agents.py:37 -- an extra refusal layered "
         "on top of @authed, not the authentication itself."

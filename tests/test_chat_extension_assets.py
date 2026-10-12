@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from tests.test_project_safe_extension_scope import ALLOWED_CHAT_MATCHES, ALLOWED_HOSTS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -26,8 +28,7 @@ def test_chat_extension_scaffold_exists():
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
     assert manifest["version"] == "0.14.44"
-    assert "https://*.ts.net/*" in manifest["host_permissions"]
-    assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
+    assert set(manifest["host_permissions"]) == ALLOWED_HOSTS
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     # v4.48.0 adds shadow_toolbar.js as the 7th content script (before
@@ -45,11 +46,11 @@ def test_chat_extension_scaffold_exists():
     assert manifest["content_scripts"][0]["js"][8] == "content.js"
     # v4.48.0: shadow_toolbar.css must be reachable from a content
     # script via chrome.runtime.getURL(); web_accessible_resources
-    # publishes it against <all_urls>.
+    # publishes it only against the supported chat sites.
     war = manifest.get("web_accessible_resources", [])
     assert any(
         "shadow_toolbar.css" in (entry.get("resources") or [])
-        and "<all_urls>" in (entry.get("matches") or [])
+        and set(entry.get("matches") or []) == ALLOWED_CHAT_MATCHES
         for entry in war
     ), "shadow_toolbar.css must be listed in web_accessible_resources"
     assert "arena.preview" in background
@@ -230,11 +231,11 @@ def test_chat_extension_scaffold_exists():
     #     to the generic adapter (both were reported in scan-reports).
     assert "'arenaai'" in adapter_sites and "'arena.ai'" in adapter_sites
     assert "'duckai'" in adapter_sites and "'duck.ai'" in adapter_sites
-    # (c) manifest must permit the new hosts so the content script
-    #     actually loads there.
+    # (c) Packaged adapters remain available, but project-safe manifests
+    #     must not grant these broader upstream sites access.
     for host_glob in ('https://arena.ai/*', 'https://duck.ai/*'):
-        assert host_glob in manifest["host_permissions"], \
-            f"{host_glob} missing from host_permissions"
+        assert host_glob not in manifest["host_permissions"]
+        assert host_glob not in manifest["content_scripts"][0]["matches"]
     # (d) user-authored-node filter must be present -- guards against
     #     the false-positive "detected on user message" pattern seen
     #     on Grok / Copilot / DuckAI / Arena.ai scan-reports.
@@ -258,10 +259,8 @@ def test_chat_extension_scaffold_exists():
         "not only from separate `type:\"parameter\"` rows"
     )
     assert (base / "manifest.json").exists()
-    # Ensure www.kimi.com is listed in host_permissions too, otherwise
-    # the content script would not even load on the URL the user hits.
-    assert "https://www.kimi.com/*" in manifest["host_permissions"], \
-        "www.kimi.com missing from host_permissions"
+    # Kimi is another packaged upstream adapter without project-safe access.
+    assert "https://www.kimi.com/*" not in manifest["host_permissions"]
     assert "arenaMessageFingerprint" in adapters
     assert "arenaPayloadFingerprint" in adapters
     assert "arenaPayloadSemanticFingerprint" in adapters

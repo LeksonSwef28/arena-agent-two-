@@ -22,6 +22,7 @@ from arena.project_safe_session import (
     file_effect_target_fingerprint,
     validate_file_resource_cas,
 )
+from tests._git_budget import git_timeout
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -30,6 +31,7 @@ def _git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        timeout=git_timeout(),
     )
     if result.returncode != 0:
         pytest.fail(f"git {' '.join(args)} failed: {result.stderr}")

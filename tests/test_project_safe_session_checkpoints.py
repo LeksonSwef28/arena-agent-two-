@@ -386,3 +386,39 @@ def test_other_valid_checkpoint_kinds_round_trip(tmp_path: Path, kind):
         assert store.read_checkpoint(manifest.checkpoint_id) == manifest
     finally:
         lease.release()
+
+
+@pytest.mark.parametrize("payload", [None, b"", b"changed"])
+def test_existing_checkpoint_builder_rejects_missing_or_changed_bytes(payload):
+    before = FileResourceBefore.from_dict({
+        "project_fingerprint": SHA_A, "canonical_relative_path": "file.txt",
+        "resource_type": "file", "exists": True,
+        "content_sha256": hashlib.sha256(b"original").hexdigest(),
+    })
+    with pytest.raises(CheckpointContractError):
+        checkpoint_resource_from_file_before(before, payload)
+
+
+@pytest.mark.parametrize("payload", [b"", b"original"])
+def test_existing_checkpoint_builder_hashes_empty_and_nonempty_files(payload):
+    digest = hashlib.sha256(payload).hexdigest()
+    before = FileResourceBefore.from_dict({
+        "project_fingerprint": SHA_A, "canonical_relative_path": "file.txt",
+        "resource_type": "file", "exists": True, "content_sha256": digest,
+    })
+    resource = checkpoint_resource_from_file_before(before, payload)
+    assert resource.existed is True
+    assert resource.content_sha256 == resource.backup_sha256 == digest
+    assert resource.backup_ref == f"files/{digest}.bin"
+    assert resource.size == len(payload)
+
+
+def test_absent_checkpoint_builder_rejects_even_empty_backup_bytes():
+    before = FileResourceBefore.from_dict({
+        "project_fingerprint": SHA_A, "canonical_relative_path": "file.txt",
+        "resource_type": "file", "exists": False, "content_sha256": None,
+    })
+    resource = checkpoint_resource_from_file_before(before, None)
+    assert resource.existed is False and resource.backup_sha256 is None
+    with pytest.raises(CheckpointContractError, match="absent file"):
+        checkpoint_resource_from_file_before(before, b"")

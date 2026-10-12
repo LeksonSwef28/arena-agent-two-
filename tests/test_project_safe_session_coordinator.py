@@ -18,6 +18,7 @@ from arena.project_safe_session import (
 )
 from arena.project_safe_session.storage import StateRevisionError, StorageError
 from arena.project_safe_session.workspace import WorkspaceError, WorkspaceUnstableError
+from tests._git_budget import git_timeout
 
 NOW1 = "2026-10-07T03:20:00Z"
 NOW2 = "2026-10-07T03:21:00Z"
@@ -31,6 +32,7 @@ def _git(repo: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        timeout=git_timeout(),
     )
     if result.returncode != 0:
         pytest.fail(f"git {' '.join(args)} failed: {result.stderr}")
