@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -28,6 +29,16 @@ def _load_script(relpath: str, module_name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _patch_private_dependency(monkeypatch, owner, name, member, replacement):
+    """Replace one owner binding without mutating a process-wide dependency."""
+    original = getattr(owner, name)
+    original_member = getattr(original, member)
+    private = SimpleNamespace(**{**vars(original), member: replacement})
+    monkeypatch.setattr(owner, name, private)
+    assert getattr(owner, name) is not original
+    assert getattr(original, member) is original_member
 
 
 def test_secondary_server_guard_is_transparent_outside_project_safe(monkeypatch):
@@ -64,7 +75,7 @@ def test_standalone_ws_refuses_before_socket_creation(monkeypatch):
     def forbidden_socket(*_args, **_kwargs):
         raise AssertionError("standalone WS server created a socket")
 
-    monkeypatch.setattr(standalone_ws.socket, "socket", forbidden_socket)
+    _patch_private_dependency(monkeypatch, standalone_ws, "socket", "socket", forbidden_socket)
 
     with pytest.raises(RuntimeError, match="disabled"):
         standalone_ws.main()
@@ -73,10 +84,11 @@ def test_standalone_ws_refuses_before_socket_creation(monkeypatch):
 def test_grpc_secondary_refuses_before_task_spawn(monkeypatch):
     monkeypatch.setenv("ARENA_PROJECT_SAFE", "1")
 
-    def forbidden_create_task(*_args, **_kwargs):
+    def forbidden_create_task(coro, **_kwargs):
+        coro.close()
         raise AssertionError("gRPC secondary server created a task")
 
-    monkeypatch.setattr(grpc_runtime.asyncio, "create_task", forbidden_create_task)
+    _patch_private_dependency(monkeypatch, grpc_runtime, "asyncio", "create_task", forbidden_create_task)
 
     with pytest.raises(RuntimeError, match="disabled"):
         grpc_runtime.start_grpc_server({"port": 8765, "token": "x"})
@@ -103,7 +115,7 @@ def test_serena_refuses_before_external_process_spawn(monkeypatch):
     def forbidden_popen(*_args, **_kwargs):
         raise AssertionError("Serena helper spawned an external MCP process")
 
-    monkeypatch.setattr(mod.subprocess, "Popen", forbidden_popen)
+    _patch_private_dependency(monkeypatch, mod, "subprocess", "Popen", forbidden_popen)
 
     with pytest.raises(RuntimeError, match="disabled"):
         mod.start_server(project_dir=ROOT)
@@ -146,7 +158,7 @@ def test_grpc_loop_refuses_before_application_setup(monkeypatch):
     def forbidden_app(*_args, **_kwargs):
         raise AssertionError("gRPC loop created an aiohttp application")
 
-    monkeypatch.setattr(grpc_runtime.web, "Application", forbidden_app)
+    _patch_private_dependency(monkeypatch, grpc_runtime, "web", "Application", forbidden_app)
 
     with pytest.raises(RuntimeError, match="disabled"):
         asyncio.run(grpc_runtime.grpc_server_loop({"port": 8765, "token": "x"}))
