@@ -222,6 +222,10 @@ Area Network (LAN) webhooks are stated explicitly.
 | `ARENA_NGROK_URL_WAIT_SECONDS` | operational | exact | Controls ngrok URL-discovery timeout. |
 | `ARENA_PORT` | operational | exact | Overrides the local Bridge/listener/relauncher port. |
 | `ARENA_PROFILE` | security | exact | Selects the execution profile, including owner-shell behavior. |
+| `ARENA_PROJECT_SAFE` | security | exact | Enables the restricted project-safe policy and refuses secondary servers; disabled by default. |
+| `ARENA_PROJECT_SAFE_CODE` | security | exact | Authorizes fenced code.run in project-safe mode; disabled by default. |
+| `ARENA_PROJECT_SAFE_STATE_ROOT` | security | exact | Overrides durable project-safe storage; the resolved absolute directory must remain outside the configured workspace. |
+| `ARENA_PROJECT_SAFE_WRITES` | security | exact | Authorizes workspace file writes in project-safe mode; disabled by default. |
 | `ARENA_PYTHON` | operational | exact | Overrides the Python executable written into service/autostart configuration. |
 | `ARENA_REC` | operational | exact | Enables mission CLI recording mode. |
 | `ARENA_RELEASE_DIR` | operational | exact | Overrides the directory used to stage release archives. |

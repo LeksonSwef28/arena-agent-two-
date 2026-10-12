@@ -65,9 +65,9 @@ Observed counts:
 - non-CDP registered routes: **292**
 - non-GET operations among them: **148**
 - CDP endpoint definitions: **36**
-- CDP is exposed under two prefixes:
-  - `/v1/browser/cdp`
-  - `/v1/cdp`
+- CDP is exposed under two URL families (the prefixes are not endpoints themselves):
+  - `/v1/browser/cdp/*`, for example `/v1/browser/cdp/status`
+  - `/v1/cdp/*`, for example `/v1/cdp/status`
 - effective CDP routes: **72**
 - effective non-GET CDP operations: **42**
 
