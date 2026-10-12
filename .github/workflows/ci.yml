@@ -933,12 +933,8 @@ jobs:
     if: needs.changes.outputs.run_expensive == 'true'
     runs-on: ubuntu-latest
     steps:
-      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
-      # records network egress / file integrity / processes to the
-      # StepSecurity dashboard. Chosen as P1 from
-      # docs/github_apps_actions_survey.md: this workflow installs
-      # packages from npm, so egress visibility matters.
-      # Signal route: their dashboard, NOT our red — by design.
+      # Enforce egress for the locked npm install. The registry host is
+      # required by package-lock.json; keep an exact HTTPS destination.
       - name: Harden Runner (block mode, egress enforced)
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -948,6 +944,7 @@ jobs:
             api.github.com:443
             objects.githubusercontent.com:443
             release-assets.githubusercontent.com:443
+            registry.npmjs.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

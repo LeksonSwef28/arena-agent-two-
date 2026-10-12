@@ -148,3 +148,27 @@ def test_allowed_endpoints_are_all_host_port_pairs():
         "allowlist entries that are not host:port (a comment folded into the "
         f"YAML block scalar?): {bad}"
     )
+
+
+def test_js_lint_egress_covers_every_locked_registry_host():
+    """An integrity-locked install still needs egress to its artifact hosts."""
+    import json
+    from urllib.parse import urlsplit
+
+    root = Path(__file__).resolve().parents[1]
+    lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
+    endpoints = set()
+    for package in lock["packages"].values():
+        if "resolved" not in package:
+            continue
+        url = urlsplit(package["resolved"])
+        assert url.scheme == "https" and url.hostname
+        assert package.get("integrity"), "every remote artifact needs an integrity hash"
+        endpoints.add(f"{url.hostname}:{url.port or 443}")
+    assert endpoints, "the lock must contain remote artifact URLs"
+    job = next(job for wf, jid, job in _jobs() if wf == "ci.yml" and jid == "js-lint")
+    step = _harden_runner_step(job)
+    assert _is_blocking(step), "the npm install must retain enforced egress"
+    declared = set(step["with"]["allowed-endpoints"].split())
+    assert endpoints <= declared, f"locked artifact hosts missing from allowlist: {endpoints - declared}"
+    assert not any("*" in endpoint for endpoint in declared), "use exact download hosts"
