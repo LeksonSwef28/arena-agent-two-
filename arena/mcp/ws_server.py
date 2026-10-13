@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.mcp.ws_client import _client_loop
 from arena.mcp.ws_frames import TOOLS, VERSION, socket, threading
 from arena.mcp.ws_push import _notify_watcher
+from arena.project_safe import require_project_safe_secondary_server_disabled
 
 
 def main() -> None:
@@ -12,6 +13,7 @@ def main() -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8768)
     a = p.parse_args()
+    require_project_safe_secondary_server_disabled("standalone MCP WebSocket server")
     threading.Thread(target=_notify_watcher, daemon=True).start()
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

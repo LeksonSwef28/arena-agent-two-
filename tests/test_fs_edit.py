@@ -23,6 +23,9 @@ class _MockCtx:
     def __init__(self, home_dir):
         self._home = Path(home_dir).resolve()
 
+    def app_config(self):
+        return {"root": str(self._home)}
+
     def under_root(self, p, home):
         try:
             Path(p).resolve().relative_to(self._home)

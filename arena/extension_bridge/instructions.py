@@ -27,6 +27,7 @@ from typing import Any
 
 from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp.tool_registry import MCP_TOOLS
+from arena.project_safe import filter_project_safe_tools
 
 SAFE_EXAMPLES = [
     ("sys.status", {}),
@@ -358,7 +359,8 @@ def extension_instructions(fmt: str = "arena", style: str = "full",
 
     if category:
         normalized_category = _normalize_category(category)
-        catalog = [_catalog_entry(t) for t in MCP_TOOLS if _matches_category(t, normalized_category)]
+        available_tools = filter_project_safe_tools(MCP_TOOLS)
+        catalog = [_catalog_entry(t) for t in available_tools if _matches_category(t, normalized_category)]
         catalog.sort(key=lambda e: (e["risk"] == "dangerous", e["risk"] == "medium", e["name"]))
         catalog_text = _format_catalog_prompt(catalog, normalized_category, fmt)
         parts.append(catalog_text)

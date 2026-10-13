@@ -12,27 +12,34 @@ from pathlib import Path
 from typing import Any
 
 from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
+from arena.mcp.git_safe import run_project_safe_git
+from arena.mcp.project_boundary import resolve_workspace_path
 from arena.mcp.tool_utils import text_content
+from arena.project_safe import project_safe_enabled
 
 _MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
 
 
 def _validate_repo_path(path_str: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:
-    """Validate that path is inside home directory."""
-    if not path_str:
-        return None, {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-    resolved = Path(path_str).resolve()
-    home = Path.home().resolve()
-    if not ctx.under_root(resolved, home):
-        return None, {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+    """Validate that the repository is inside the configured workspace root."""
+    resolved, reason = resolve_workspace_path(path_str, ctx)
+    if reason:
+        return None, {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {reason}"}]}
     return resolved, None
 
 
 def _run_git(repo_path: Path, args: list[str], timeout: int = 15) -> tuple[int, str, str]:
-    """Run a git command in repo_path. Returns (exit_code, stdout, stderr)."""
+    """Run Git; project-safe mode reuses the shared hardened Git runner."""
+    if project_safe_enabled():
+        code, stdout, stderr = run_project_safe_git(repo_path, args, timeout=timeout)
+        return (
+            code,
+            stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else str(stdout),
+            stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr),
+        )
     try:
         result = subprocess.run(
-            ["git"] + args,
+            ["git", *args],
             cwd=str(repo_path),
             capture_output=True,
             text=True,
@@ -43,6 +50,26 @@ def _run_git(repo_path: Path, args: list[str], timeout: int = 15) -> tuple[int, 
         return -1, "", "git command timed out"
     except Exception as e:
         return -2, "", str(e)
+
+
+def _project_safe_commit_sha(repo_path: Path, revision: str) -> tuple[str | None, str | None]:
+    """Resolve one user revision to an immutable commit SHA without option injection."""
+    value = str(revision or "").strip()
+    if not value:
+        return None, None
+    if value.startswith("-") or "\x00" in value or any(ch.isspace() for ch in value):
+        return None, "unsafe git revision syntax"
+
+    code, stdout, stderr = _run_git(
+        repo_path,
+        ["rev-parse", "--verify", "--end-of-options", f"{value}^{{commit}}"],
+    )
+    if code != 0:
+        return None, f"invalid git revision: {stderr.strip() or value}"
+    sha = stdout.strip().splitlines()[0] if stdout.strip() else ""
+    if len(sha) not in {40, 64} or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+        return None, "git revision did not resolve to a commit SHA"
+    return sha, None
 
 
 def handle_git_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
@@ -81,7 +108,10 @@ def _handle_git_status(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     """Show git status (porcelain + branch info)."""
     short = bool(args.get("short", False))
     fmt = ["--porcelain"] if short else ["--porcelain=v1", "-b"]
-    code, stdout, stderr = _run_git(path, ["status"] + fmt)
+    git_args = ["status"]
+    if project_safe_enabled():
+        git_args.append("--ignore-submodules=all")
+    code, stdout, stderr = _run_git(path, git_args + fmt)
     if code != 0:
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: git status failed: {stderr}"}]}
     return text_content(stdout.strip() if stdout.strip() else "Working tree clean")
@@ -93,10 +123,19 @@ def _handle_git_diff(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     commit = args.get("commit", "")
 
     git_args = ["diff"]
+    if project_safe_enabled():
+        git_args += ["--no-ext-diff", "--no-textconv", "--ignore-submodules=all"]
     if staged:
         git_args.append("--cached")
     if commit:
-        git_args.append(commit)
+        if project_safe_enabled():
+            resolved_commit, revision_error = _project_safe_commit_sha(path, str(commit))
+            if revision_error:
+                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {revision_error}"}]}
+            assert resolved_commit is not None
+            git_args.append(resolved_commit)
+        else:
+            git_args.append(commit)
 
     code, stdout, stderr = _run_git(path, git_args, timeout=30)
     if code != 0:
@@ -110,6 +149,8 @@ def _handle_git_log(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     oneline = bool(args.get("oneline", True))
 
     git_args = ["log"]
+    if project_safe_enabled():
+        git_args.append("--no-show-signature")
     if oneline:
         git_args.append("--oneline")
     git_args.append(f"-{limit}")
@@ -122,6 +163,9 @@ def _handle_git_log(path: Path, args: dict[str, Any]) -> dict[str, Any]:
 
 def _handle_git_commit(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     """Stage all changes and create a commit."""
+    if project_safe_enabled():
+        return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: git.commit is disabled in project-safe mode"}]}
+
     message = args.get("message", "")
     add_all = bool(args.get("add_all", True))
 

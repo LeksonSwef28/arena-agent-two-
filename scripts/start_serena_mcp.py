@@ -19,6 +19,10 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from arena.project_safe import require_project_safe_secondary_server_disabled  # noqa: E402
 
 
 def check_status(port: int = 8100) -> dict[str, bool | str | int]:
@@ -33,6 +37,7 @@ def check_status(port: int = 8100) -> dict[str, bool | str | int]:
 
 
 def start_server(port: int = 8100, context: str = "claude-code", project_dir: Path | None = None, transport: str = "streamable-http") -> int:
+    require_project_safe_secondary_server_disabled("Serena MCP server")
     target_project = project_dir or ROOT
     serena_bin = shutil.which("serena")
     if not serena_bin:

@@ -32,6 +32,31 @@ from arena.inventory.probe_common import (
     timezone,
 )
 
+
+def _path_exists(path: Path) -> bool:
+    """Treat inaccessible/raced-away metadata as unavailable to this probe."""
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _directory_entries(root: Path) -> list[Path]:
+    """Enumerate readable directories without following symlink targets."""
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return []
+    directories = []
+    for entry in entries:
+        try:
+            if not entry.is_symlink() and entry.is_dir():
+                directories.append(entry)
+        except OSError:
+            continue
+    return directories
+
+
 # ------------------------------------------------------------------ python_venvs
 
 def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
@@ -41,7 +66,7 @@ def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
     """
     info: dict[str, Any] = {"available": False, "venvs": []}
     home = Path(scan_root or os.path.expanduser("~"))
-    if not home.exists():
+    if not _path_exists(home):
         info["error"] = "$HOME not accessible"
         return info
 
@@ -51,27 +76,22 @@ def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:
     seen: set[str] = set()
 
     def _is_venv(p: Path) -> bool:
-        return (p / "pyvenv.cfg").is_file() and (
-            (p / "bin" / "python").exists()
-            or (p / "bin" / "python3").exists()
-            or (p / "Scripts" / "python.exe").exists()
-        )
+        try:
+            return (p / "pyvenv.cfg").is_file() and (
+                (p / "bin" / "python").exists()
+                or (p / "bin" / "python3").exists()
+                or (p / "Scripts" / "python.exe").exists()
+            )
+        except OSError:
+            return False
 
     def _walk(root: Path, depth: int = 0) -> None:
         if depth > 5 or len(info["venvs"]) >= limit:
             return
-        try:
-            entries = list(root.iterdir())
-        except (PermissionError, OSError):
-            return
-        for e in entries:
-            if not e.is_dir():
-                continue
+        for e in _directory_entries(root):
             # Skip trash directories that never contain a venv.
             if e.name in ("node_modules", ".cache", ".git",
                           "__pycache__", "target", "dist", "build"):
-                continue
-            if e.is_symlink():
                 continue
             try:
                 key = str(e.resolve())
@@ -130,7 +150,7 @@ def get_git_repos(scan_root: str | None = None, limit: int = 30) -> dict:
         info["error"] = "git not on PATH"
         return info
     home = Path(scan_root or os.path.expanduser("~"))
-    if not home.exists():
+    if not _path_exists(home):
         info["error"] = "$HOME not accessible"
         return info
 
@@ -146,22 +166,11 @@ def get_git_repos(scan_root: str | None = None, limit: int = 30) -> dict:
     def _walk(root: Path, depth: int = 0) -> None:
         if depth > 5 or len(found) >= limit:
             return
-        try:
-            entries = list(root.iterdir())
-        except (PermissionError, OSError):
-            return
-        for e in entries:
-            if not e.is_dir():
-                continue
+        for e in _directory_entries(root):
             if e.name in ("node_modules", ".cache", "__pycache__",
                           "target", "dist", "build", "venv", ".venv"):
                 continue
-            if e.is_symlink():
-                # Symlinks to directories cause duplicate discovery
-                # (~/cwd -> ~/arena-bridge). Skip them entirely --
-                # the real path is walked separately.
-                continue
-            if (e / ".git").exists():
+            if _path_exists(e / ".git"):
                 try:
                     real = str(e.resolve())
                 except (OSError, RuntimeError):

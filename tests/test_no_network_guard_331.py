@@ -96,15 +96,16 @@ def test_the_refusal_is_not_an_oserror(suite_conftest):
         socket.create_connection(_UNROUTABLE, timeout=5)
 
 
-def test_urlopen_is_covered_without_being_patched(suite_conftest):
-    """Every HTTP client goes through `socket`, so only `socket` is patched.
+def test_urllib_direct_request_is_covered_without_being_patched(suite_conftest):
+    """The direct urllib client must reach the socket guard before networking.
 
-    Patching `urlopen` would protect the callers someone remembered.
-    `urllib`, `http.client` and `requests` all end at
-    `socket.create_connection`, which is why the guard sits there.
+    Inherited localhost proxies move the socket destination to loopback, which
+    the guard intentionally permits. Use a private direct opener to test this
+    contract independently of the machine's proxy configuration.
     """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with pytest.raises(suite_conftest.NetworkUseInTest):
-        urllib.request.urlopen(  # nosec B310 -- fixed https literal that
+        opener.open(  # nosec B310 -- fixed https literal that
             # must never be reached: the assertion is that the guard
             # refuses it before a socket is opened.
             "https://huggingface.co/whatever", timeout=5)

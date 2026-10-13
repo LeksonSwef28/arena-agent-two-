@@ -445,7 +445,7 @@ def test_every_tool_dependent_endpoint_answers_503_with_its_tool_list(tmp_path, 
     assert "error_type" not in payload
 
 
-def test_resolve_text_target_no_longer_calls_a_missing_tool_a_success():
+def test_resolve_text_target_no_longer_calls_a_missing_tool_a_success(monkeypatch):
     """The worst of the nine: it answered 200 with `ok: false`.
 
     Worse than the 500s, because a client checking the status code -- which
@@ -455,7 +455,15 @@ def test_resolve_text_target_no_longer_calls_a_missing_tool_a_success():
     """
     import tempfile
 
+    import arena.desktop.ocr as ocr_module
     from tests._live_bridge import json_payload, running_client
+    from tests.test_project_safe_secondary_servers import _patch_private_dependency
+
+    original_which = ocr_module.shutil.which
+    _patch_private_dependency(
+        monkeypatch, ocr_module, "shutil", "which",
+        lambda tool: None if tool == "tesseract" else original_which(tool),
+    )
 
     async def scenario():
         with tempfile.TemporaryDirectory() as root:

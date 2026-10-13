@@ -38,10 +38,9 @@ def test_real_security_inventory_matches_source_exactly() -> None:
     source = source_references(ROOT)
     documented = documented_inventory(ROOT.joinpath("SECURITY.md").read_text(encoding="utf-8"))
     assert set(source) == set(documented)
-    # 76 since #258 added ARENA_FUZZ_TOKEN: the fuzz gate hands its bridge a
-    # token through the environment rather than argv, and a security-relevant
-    # variable that nobody wrote down is exactly what this count is for.
-    assert len(source) == 76
+    # The original 76 inputs plus four project-safe controls. Keep the count
+    # exact so another source control requires an inventory update.
+    assert len(source) == 80
 
 
 def test_security_weakening_and_credential_inputs_are_classified() -> None:
@@ -54,6 +53,10 @@ def test_security_weakening_and_credential_inputs_are_classified() -> None:
         "ARENA_INPUT_HELPER_TOKEN",
         "ARENA_LOCAL_BRIDGE_TOKEN",
         "ARENA_PROFILE",
+        "ARENA_PROJECT_SAFE",
+        "ARENA_PROJECT_SAFE_CODE",
+        "ARENA_PROJECT_SAFE_STATE_ROOT",
+        "ARENA_PROJECT_SAFE_WRITES",
         "ARENA_SCENARIOS_ALLOW_YAML",
         "ARENA_SECRETS_PATH",
         "ARENA_UPDATE_REPO",

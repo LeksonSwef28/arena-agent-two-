@@ -1,0 +1,98 @@
+name: Project Safe Windows
+
+on:
+  push:
+    branches:
+      - hardening/project-safe-v0
+    paths:
+      - "arena/**"
+      - "bin/web_gateway.py"
+      - "scripts/start_serena_mcp.py"
+      - "tests/test_project_safe*.py"
+      - "tests/test_lifecycle.py"
+      - "start.bat"
+      - "requirements-ci.lock"
+      - "pyproject.toml"
+      - ".github/workflows/project-safe-windows.yml"
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "arena/**"
+      - "bin/web_gateway.py"
+      - "scripts/start_serena_mcp.py"
+      - "tests/test_project_safe*.py"
+      - "tests/test_lifecycle.py"
+      - "start.bat"
+      - "requirements-ci.lock"
+      - "pyproject.toml"
+      - ".github/workflows/project-safe-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-safe-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  project-safe-windows:
+    name: P0 + P1 foundation / Windows / Python 3.12
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install locked test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Verify Windows runner
+        shell: pwsh
+        run: |
+          python -c "import os, platform, sys; print(platform.platform()); print(sys.version); assert os.name == 'nt'"
+
+      - name: Run targeted project-safe tests
+        shell: pwsh
+        env:
+          ARENA_TEST_EXECUTION_GUARD: "1"
+        run: |
+          python -m pytest -q --no-cov --strict-markers -ra `
+            tests/test_project_safe_http_gate.py `
+            tests/test_lifecycle.py `
+            tests/test_project_workspace_boundary.py `
+            tests/test_project_safe_recursive_fs_boundary.py `
+            tests/test_project_safe_git_boundary.py `
+            tests/test_project_safe_secondary_servers.py `
+            tests/test_project_safe_launcher.py `
+            tests/test_project_safe_session_owner_gate.py `
+            tests/test_project_safe_session_foundation.py `
+            tests/test_project_safe_session_schemas.py `
+            tests/test_project_safe_session_v2_storage.py `
+            tests/test_project_safe_session_v2_models.py `
+            tests/test_project_safe_session_v2_state.py `
+            tests/test_project_safe_session_v2_reference_history.py `
+            tests/test_project_safe_session_v2_snapshot_projection.py `
+            tests/test_project_safe_session_storage.py `
+            tests/test_project_safe_session_action_contract.py `
+            tests/test_project_safe_session_action_flow_evidence.py `
+            tests/test_project_safe_session_checkpoints.py `
+            tests/test_project_safe_session_registry.py `
+            tests/test_project_safe_session_coordinator.py `
+            tests/test_project_safe_session_recovery.py `
+            tests/test_project_safe_session_lifecycle_evidence.py `
+            tests/test_project_safe_session_workspace.py `
+            tests/test_architecture_boundaries.py
